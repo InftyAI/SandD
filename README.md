@@ -32,8 +32,7 @@ Rust-powered WebSocket server with Python API for secure command execution in is
 ┌─────────────────────────────────────────┐
 │  Python Agent Application               │
 │  ┌────────────────────────────────────┐ │
-│  │  from sandbox_execution import     │ │
-│  │  Server                            │ │
+│  │  from sandd import Server          │ │
 │  │                                    │ │
 │  │  server = Server("0.0.0.0", 8765)  │ │
 │  │  result = server.execute_command(  │ │
@@ -49,16 +48,16 @@ Rust-powered WebSocket server with Python API for secure command execution in is
 │  │  • Session management              │ │
 │  └────────────────────────────────────┘ │
 └─────────────────────────────────────────┘
-              ▲
-              │ WebSocket (WSS)
-              │ (Daemon initiates connection)
-              │
-    ┌─────────┼─────────┐
-    │         │         │
-┌───▼───┐ ┌──▼────┐ ┌──▼────┐
-│Daemon │ │Daemon │ │Daemon │
-│  #1   │ │  #2   │ │  #n   │
-└───────┘ └───────┘ └───────┘
+                     ▲
+                     │ WebSocket (WSS)
+                     │ (Daemon initiates connection)
+                     │
+           ┌─────────┼─────────┐
+           │         │         │
+       ┌───▼───┐ ┌───▼───┐ ┌───▼───┐
+       │Daemon │ │Daemon │ │Daemon │
+       │  #1   │ │  #2   │ │  #n   │
+       └───────┘ └───────┘ └───────┘
 ```
 
 **Key Design**: Daemons connect **TO** the agent (not the other way around), so no ports need to be exposed on the execution plane.
@@ -113,91 +112,6 @@ print(f"Output: {result.stdout}")
     --server-url ws://agent-host:8765/ws
 
 # ... repeat for n+ machines
-```
-
-## Usage Examples
-
-### Command Execution
-
-```python
-from sandd import Server
-
-server = Server("0.0.0.0", 8765)
-
-# Simple command
-result = server.execute_command("worker-1", "ls -la /tmp")
-if result.success:
-    print(result.stdout)
-else:
-    print(f"Failed: {result.stderr}")
-
-# With environment variables
-result = server.execute_command(
-    "worker-1",
-    "echo $MY_VAR",
-    env={"MY_VAR": "custom_value"}
-)
-
-# With timeout and working directory
-result = server.execute_command(
-    "worker-1",
-    "python long_script.py",
-    timeout=600,
-    cwd="/opt/app"
-)
-```
-
-### Interactive Shell
-
-```python
-# Start shell session
-shell = server.start_shell("worker-1", rows=24, cols=80)
-
-# Send commands
-shell.write(b"cd /tmp\n")
-shell.write(b"ls -la\n")
-
-# Read output
-import time
-time.sleep(0.5)
-output = shell.read(timeout=1.0)
-if output:
-    print(output.decode())
-
-# Resize terminal
-shell.resize(rows=50, cols=120)
-```
-
-### File Transfer
-
-```python
-# Upload file
-with open("config.yaml", "rb") as f:
-    data = f.read()
-server.upload_file("worker-1", "/etc/app/config.yaml", data)
-
-# Download file
-data = server.download_file("worker-1", "/var/log/app.log")
-with open("app.log", "wb") as f:
-    f.write(data)
-```
-
-### Managing Daemons
-
-```python
-# List connected daemons
-daemons = server.list_daemons()
-print(f"Connected: {daemons}")
-
-# Get statistics
-stats = server.get_stats()
-print(f"Total: {stats.total_daemons}")
-print(f"By platform: {stats.by_platform}")
-print(f"Oldest connection: {stats.oldest_connection_secs}s")
-
-# Wait for specific daemon
-if server.wait_for_daemon("worker-1", timeout=60):
-    print("Daemon connected!")
 ```
 
 ## Development
