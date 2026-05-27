@@ -7,9 +7,11 @@ name = "sandd"
 version = "0.1.0"
 description = "SandD - High-performance sandbox command execution system with 200+ concurrent agent support"
 requires-python = ">=3.8"
+license = {text = "MIT"}
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
+    "License :: OSI Approved :: MIT License",
 ]
 dependencies = []
 
