@@ -1,6 +1,20 @@
-# SandD - Sandbox Daemon
+<div align="center">
 
-Remote execution system for sandbox agents. Rust-powered server with Python API, designed for secure command execution in isolated environments.
+# SandD
+
+**Sandbox Daemon for Secure Remote Command Execution**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
+[![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
+
+Rust-powered WebSocket server with Python API for secure command execution in isolated environments.
+
+[Features](#features) • [Quick Start](#quick-start) • [Architecture](#architecture) • [Documentation](./docs)
+
+</div>
+
+---
 
 ## Features
 
@@ -128,7 +142,7 @@ result = server.execute_command(
 result = server.execute_command(
     "worker-1",
     "python long_script.py",
-    timeout_secs=600,
+    timeout=600,
     cwd="/opt/app"
 )
 ```

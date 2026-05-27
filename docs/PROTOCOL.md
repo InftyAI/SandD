@@ -2,6 +2,31 @@
 
 WebSocket-based JSON protocol for communication between agent and daemon.
 
+## Protocol Versioning
+
+SandD uses WebSocket subprotocol negotiation for versioning via the `Sec-WebSocket-Protocol` header:
+
+**Client (Daemon) Request:**
+```
+GET /ws HTTP/1.1
+Upgrade: websocket
+Sec-WebSocket-Protocol: sandd.v1
+```
+
+**Server (Agent) Response:**
+```
+HTTP/1.1 101 Switching Protocols
+Upgrade: websocket
+Sec-WebSocket-Protocol: sandd.v1
+```
+
+**Current Version:** `sandd.v1`
+
+**Benefits:**
+- Protocol-native versioning mechanism
+- Client can propose multiple versions: `Sec-WebSocket-Protocol: sandd.v1, sandd.v2`
+- Server selects best supported version
+
 ## Connection Architecture
 
 ```
@@ -45,7 +70,7 @@ All messages are JSON with a `type` field indicating the message type:
 ### Connection Management
 
 #### Register
-**Direction**: Daemon → Agent  
+**Direction**: Daemon → Agent
 **Purpose**: Daemon registers itself when connecting
 
 ```json
@@ -66,7 +91,7 @@ All messages are JSON with a `type` field indicating the message type:
 ```
 
 #### RegisterAck
-**Direction**: Agent → Daemon  
+**Direction**: Agent → Daemon
 **Purpose**: Acknowledge successful registration
 
 ```json
@@ -78,7 +103,7 @@ All messages are JSON with a `type` field indicating the message type:
 ```
 
 #### Heartbeat
-**Direction**: Daemon → Agent  
+**Direction**: Daemon → Agent
 **Purpose**: Keep connection alive (sent every 30 seconds)
 
 ```json
@@ -88,7 +113,7 @@ All messages are JSON with a `type` field indicating the message type:
 ```
 
 #### Pong
-**Direction**: Agent → Daemon  
+**Direction**: Agent → Daemon
 **Purpose**: Response to heartbeat (optional)
 
 ```json
@@ -100,7 +125,7 @@ All messages are JSON with a `type` field indicating the message type:
 ### Command Execution
 
 #### ExecuteCommand
-**Direction**: Agent → Daemon  
+**Direction**: Agent → Daemon
 **Purpose**: Execute a shell command
 
 ```json
@@ -124,7 +149,7 @@ All messages are JSON with a `type` field indicating the message type:
 - `cwd`: Working directory (optional)
 
 #### CommandOutput
-**Direction**: Daemon → Agent  
+**Direction**: Daemon → Agent
 **Purpose**: Return command execution results
 
 ```json
@@ -139,7 +164,7 @@ All messages are JSON with a `type` field indicating the message type:
 ```
 
 #### CommandError
-**Direction**: Daemon → Agent  
+**Direction**: Daemon → Agent
 **Purpose**: Report command execution error
 
 ```json
@@ -153,7 +178,7 @@ All messages are JSON with a `type` field indicating the message type:
 ### Interactive Shell (PTY)
 
 #### StartShell
-**Direction**: Agent → Daemon  
+**Direction**: Agent → Daemon
 **Purpose**: Start an interactive shell session
 
 ```json
@@ -167,7 +192,7 @@ All messages are JSON with a `type` field indicating the message type:
 ```
 
 #### ShellStarted
-**Direction**: Daemon → Agent  
+**Direction**: Daemon → Agent
 **Purpose**: Acknowledge shell started
 
 ```json
@@ -180,7 +205,7 @@ All messages are JSON with a `type` field indicating the message type:
 ```
 
 #### ShellInput
-**Direction**: Agent → Daemon  
+**Direction**: Agent → Daemon
 **Purpose**: Send user input to shell
 
 ```json
@@ -194,7 +219,7 @@ All messages are JSON with a `type` field indicating the message type:
 **Note**: `data` is base64-encoded bytes
 
 #### ShellOutput
-**Direction**: Daemon → Agent  
+**Direction**: Daemon → Agent
 **Purpose**: Stream shell output back to agent
 
 ```json
@@ -208,7 +233,7 @@ All messages are JSON with a `type` field indicating the message type:
 **Note**: `data` is base64-encoded bytes
 
 #### ShellResize
-**Direction**: Agent → Daemon  
+**Direction**: Agent → Daemon
 **Purpose**: Resize terminal window
 
 ```json
@@ -221,7 +246,7 @@ All messages are JSON with a `type` field indicating the message type:
 ```
 
 #### ShellExit
-**Direction**: Daemon → Agent  
+**Direction**: Daemon → Agent
 **Purpose**: Shell session terminated
 
 ```json
@@ -235,7 +260,7 @@ All messages are JSON with a `type` field indicating the message type:
 ### File Transfer
 
 #### FileUploadStart
-**Direction**: Agent → Daemon  
+**Direction**: Agent → Daemon
 **Purpose**: Begin uploading a file to daemon
 
 ```json
@@ -252,7 +277,7 @@ All messages are JSON with a `type` field indicating the message type:
 - `mode`: Unix file permissions (e.g., 420 = 0644 octal), optional
 
 #### FileUploadChunk
-**Direction**: Agent → Daemon  
+**Direction**: Agent → Daemon
 **Purpose**: Send file data chunk
 
 ```json
@@ -264,13 +289,13 @@ All messages are JSON with a `type` field indicating the message type:
 }
 ```
 
-**Note**: 
+**Note**:
 - `data` is base64-encoded bytes
 - Chunks are typically 64KB
 - `offset` tracks position in file
 
 #### FileUploadComplete
-**Direction**: Daemon → Agent  
+**Direction**: Daemon → Agent
 **Purpose**: Acknowledge file upload completion
 
 ```json
@@ -283,7 +308,7 @@ All messages are JSON with a `type` field indicating the message type:
 ```
 
 #### FileDownloadStart
-**Direction**: Agent → Daemon  
+**Direction**: Agent → Daemon
 **Purpose**: Request file download from daemon
 
 ```json
@@ -295,7 +320,7 @@ All messages are JSON with a `type` field indicating the message type:
 ```
 
 #### FileDownloadChunk
-**Direction**: Daemon → Agent  
+**Direction**: Daemon → Agent
 **Purpose**: Send file data chunk
 
 ```json
@@ -308,12 +333,12 @@ All messages are JSON with a `type` field indicating the message type:
 }
 ```
 
-**Note**: 
+**Note**:
 - `is_last`: true on final chunk
 - Agent buffers chunks until `is_last = true`
 
 #### FileDownloadError
-**Direction**: Daemon → Agent  
+**Direction**: Daemon → Agent
 **Purpose**: Report file download error
 
 ```json
@@ -327,7 +352,7 @@ All messages are JSON with a `type` field indicating the message type:
 ### Error Handling
 
 #### Error
-**Direction**: Either  
+**Direction**: Either
 **Purpose**: Generic error message
 
 ```json
