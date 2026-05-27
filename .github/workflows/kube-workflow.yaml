@@ -1,8 +1,5 @@
 name: Event Workflow
 
-env:
-  GH_DEBUG: api
-
 on:
   issues:
     types:
@@ -19,7 +16,6 @@ on:
 
 jobs:
   event-handler:
-    # Use a released version for stable.
     uses: kerthcet/github-workflow-as-kube/.github/workflows/workflow-as-kubernetes.yaml@main
     secrets:
       AGENT_TOKEN: ${{ secrets.AGENT_TOKEN }}
