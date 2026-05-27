@@ -278,7 +278,7 @@ Include motivation and context.
 - Check daemon logs: `RUST_LOG=info ./target/release/sandd ...`
 
 **Commands timing out:**
-- Increase `timeout_secs` parameter in `execute_command()`
+- Increase `timeout` parameter in `execute_command()` (in seconds)
 - Check daemon system resources: `top`, `free -h`
 - Verify command actually completes when run manually
 - Check daemon logs for errors

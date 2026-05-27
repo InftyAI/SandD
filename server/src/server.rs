@@ -75,9 +75,7 @@ async fn websocket_handler(
         .and_then(|v| v.to_str().ok())
         .map(|protocols| {
             // Client can send multiple protocols: "sandd.v1, sandd.v2"
-            protocols
-                .split(',')
-                .any(|p| p.trim() == SUPPORTED_PROTOCOL)
+            protocols.split(',').any(|p| p.trim() == SUPPORTED_PROTOCOL)
         })
         .unwrap_or(false);
 
@@ -85,10 +83,14 @@ async fn websocket_handler(
         info!("Client negotiated protocol: {}", SUPPORTED_PROTOCOL);
         ws.protocols([SUPPORTED_PROTOCOL])
             .on_upgrade(move |socket| handle_websocket(socket, registry))
+            .into_response()
     } else {
-        warn!("Client did not specify supported protocol (sandd.v1)");
-        // Still allow connection for backwards compatibility during transition
-        ws.on_upgrade(move |socket| handle_websocket(socket, registry))
+        error!("Client did not specify required protocol: sandd.v1");
+        (
+            StatusCode::BAD_REQUEST,
+            "Missing required Sec-WebSocket-Protocol: sandd.v1",
+        )
+            .into_response()
     }
 }
 
@@ -295,6 +297,6 @@ async fn heartbeat_monitor(registry: Arc<DaemonRegistry>) {
             warn!("Cleaned up {} stale daemon connections", removed);
         }
 
-        info!("Active daemons: {}: ", registry.count());
+        info!("Active daemons: {} ", registry.count());
     }
 }
