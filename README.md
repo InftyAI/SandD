@@ -21,18 +21,18 @@ Remote execution system for sandbox agents. Rust-powered server with Python API,
 │  │  from sandbox_execution import     │ │
 │  │  Server                            │ │
 │  │                                    │ │
-│  │  server = Server("0.0.0.0", 8765) │ │
+│  │  server = Server("0.0.0.0", 8765)  │ │
 │  │  result = server.execute_command(  │ │
 │  │      "daemon-1", "ls -la"          │ │
 │  │  )                                 │ │
 │  └────────────────────────────────────┘ │
-│          ▲                               │
+│          ▲                              │
 │          │ Python bindings (PyO3)       │
-│          ▼                               │
+│          ▼                              │
 │  ┌────────────────────────────────────┐ │
-│  │  Rust WebSocket Server (tokio)    │ │
-│  │  • Command routing                │ │
-│  │  • Session management             │ │
+│  │  Rust WebSocket Server (tokio)     │ │
+│  │  • Command routing                 │ │
+│  │  • Session management              │ │
 │  └────────────────────────────────────┘ │
 └─────────────────────────────────────────┘
               ▲
@@ -43,7 +43,7 @@ Remote execution system for sandbox agents. Rust-powered server with Python API,
     │         │         │
 ┌───▼───┐ ┌──▼────┐ ┌──▼────┐
 │Daemon │ │Daemon │ │Daemon │
-│  #1   │ │  #2   │ │ #200+ │
+│  #1   │ │  #2   │ │  #n   │
 └───────┘ └───────┘ └───────┘
 ```
 
