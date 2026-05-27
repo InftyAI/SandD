@@ -22,11 +22,35 @@ try:
         if daemons and len(daemons) > 0:
             for daemon_id in daemons:
                 try:
-                    result = server.execute_command(daemon_id, "echo test", timeout=5)
+                    # Test 1: Python script
+                    result = server.execute_command(
+                        daemon_id,
+                        "python3 -c 'import sys; print(f\"Python {sys.version_info.major}.{sys.version_info.minor}\")'",
+                        timeout=5
+                    )
                     if result.success:
-                        print(f"\n✓ Command test passed on {daemon_id}: {result.stdout.strip()}")
+                        print(f"\n✓ Python test passed on {daemon_id}: {result.stdout.strip()}")
+                    else:
+                        print(f"\n✗ Python test failed on {daemon_id}: exit_code={result.exit_code}")
+
+                    # Test 2: Wrong Python script (intentional error)
+                    result = server.execute_command(
+                        daemon_id,
+                        "python3 -c 'undefined_variable'",
+                        timeout=5
+                    )
+                    if not result.success:
+                        print(f"✓ Error handling test passed on {daemon_id}, stderr: {result.stderr.strip()}")
+                    else:
+                        print(f"✗ Error handling test failed on {daemon_id}: expected error but got success")
+
+                    # Test 3: Echo command
+                    result = server.execute_command(daemon_id, "echo 'Hello from daemon!'", timeout=5)
+                    if result.success:
+                        print(f"✓ Echo test passed on {daemon_id}: {result.stdout.strip()}")
+
                 except Exception as e:
-                    print(f"\n✗ Command failed: {e}")
+                    print(f"\n✗ Command failed on {daemon_id}: {e}")
 
         time.sleep(2)
 except KeyboardInterrupt:
