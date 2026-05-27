@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use sysinfo::System;
-use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
 use tracing::{debug, error, info, warn};
 
@@ -77,9 +76,28 @@ async fn connect_and_serve(
 ) -> Result<()> {
     info!("Connecting to server at {}", server_url);
 
-    let (ws_stream, _) = connect_async(server_url)
-        .await
-        .context("Failed to connect to server")?;
+    // Connect with subprotocol using client builder
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let mut request = server_url.into_client_request()?;
+    request.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        tokio_tungstenite::tungstenite::http::HeaderValue::from_static("sandd.v1")
+    );
+
+    let (ws_stream, response) = match tokio_tungstenite::connect_async(request).await {
+        Ok(result) => result,
+        Err(e) => {
+            error!("WebSocket connection error details: {:?}", e);
+            return Err(anyhow::anyhow!("Failed to connect to server: {}", e));
+        }
+    };
+
+    // Check negotiated protocol
+    if let Some(protocol) = response.headers().get("sec-websocket-protocol") {
+        info!("Negotiated protocol: {:?}", protocol);
+    } else {
+        warn!("Server did not negotiate protocol");
+    }
 
     info!("WebSocket connection established");
 

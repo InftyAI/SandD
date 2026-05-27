@@ -6,6 +6,7 @@ use axum::{
         ws::{WebSocket, WebSocketUpgrade},
         State,
     },
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::get,
     Router,
@@ -45,8 +46,8 @@ impl SandboxServer {
         // Build web server
         let app = Router::new()
             .route("/ws", get(websocket_handler))
-            .route("/health", get(health_handler))
             .route("/stats", get(stats_handler))
+            .route("/health", get(health_handler))
             .with_state(registry);
 
         info!("Starting sandbox server on {}", self.bind_addr);
@@ -64,8 +65,31 @@ impl SandboxServer {
 async fn websocket_handler(
     ws: WebSocketUpgrade,
     State(registry): State<Arc<DaemonRegistry>>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_websocket(socket, registry))
+    // Check for WebSocket subprotocol
+    const SUPPORTED_PROTOCOL: &str = "sandd.v1";
+
+    let has_protocol = headers
+        .get("sec-websocket-protocol")
+        .and_then(|v| v.to_str().ok())
+        .map(|protocols| {
+            // Client can send multiple protocols: "sandd.v1, sandd.v2"
+            protocols
+                .split(',')
+                .any(|p| p.trim() == SUPPORTED_PROTOCOL)
+        })
+        .unwrap_or(false);
+
+    if has_protocol {
+        info!("Client negotiated protocol: {}", SUPPORTED_PROTOCOL);
+        ws.protocols([SUPPORTED_PROTOCOL])
+            .on_upgrade(move |socket| handle_websocket(socket, registry))
+    } else {
+        warn!("Client did not specify supported protocol (sandd.v1)");
+        // Still allow connection for backwards compatibility during transition
+        ws.on_upgrade(move |socket| handle_websocket(socket, registry))
+    }
 }
 
 async fn handle_websocket(ws: WebSocket, registry: Arc<DaemonRegistry>) {
@@ -271,10 +295,6 @@ async fn heartbeat_monitor(registry: Arc<DaemonRegistry>) {
             warn!("Cleaned up {} stale daemon connections", removed);
         }
 
-        let stats = registry.get_stats();
-        info!(
-            "Active daemons: {} (platforms: {:?})",
-            stats.total_daemons, stats.by_platform
-        );
+        info!("Active daemons: {}: ", registry.count());
     }
 }

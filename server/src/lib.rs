@@ -62,12 +62,12 @@ impl Server {
     }
 
     /// Execute a command on a daemon
-    #[pyo3(signature = (daemon_id, command, timeout_secs=300, env=None, cwd=None))]
+    #[pyo3(signature = (daemon_id, command, timeout=300, env=None, cwd=None))]
     fn execute_command(
         &self,
         daemon_id: String,
         command: String,
-        timeout_secs: u64,
+        timeout: u64,
         env: Option<HashMap<String, String>>,
         cwd: Option<String>,
     ) -> PyResult<PyCommandResult> {
@@ -85,7 +85,7 @@ impl Server {
         let msg = Message::ExecuteCommand {
             command_id: command_id.clone(),
             command,
-            timeout_secs,
+            timeout_secs: timeout,
             env: env.unwrap_or_default(),
             cwd,
         };
@@ -95,7 +95,7 @@ impl Server {
 
         self.runtime.block_on(async {
             // Wait for result with timeout
-            match tokio::time::timeout(Duration::from_secs(timeout_secs + 5), rx).await {
+            match tokio::time::timeout(Duration::from_secs(timeout + 5), rx).await {
                 Ok(Ok(result)) => Ok(PyCommandResult {
                     stdout: result.stdout,
                     stderr: result.stderr,

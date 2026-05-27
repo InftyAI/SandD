@@ -16,18 +16,18 @@ try:
     while True:
         daemons = server.list_daemons()
         stats = server.get_stats()
-        
+
         print(f"\rConnected: {stats.total_daemons} | Platforms: {stats.by_platform}", end="", flush=True)
-        
+
         if daemons and len(daemons) > 0:
-            daemon_id = daemons[0]
-            try:
-                result = server.execute_command(daemon_id, "echo test", timeout_secs=5)
-                if result.success:
-                    print(f"\n✓ Command test passed on {daemon_id}")
-            except Exception as e:
-                print(f"\n✗ Command failed: {e}")
-        
+            for daemon_id in daemons:
+                try:
+                    result = server.execute_command(daemon_id, "echo test", timeout=5)
+                    if result.success:
+                        print(f"\n✓ Command test passed on {daemon_id}: {result.stdout.strip()}")
+                except Exception as e:
+                    print(f"\n✗ Command failed: {e}")
+
         time.sleep(2)
 except KeyboardInterrupt:
     print("\n\nShutting down...")

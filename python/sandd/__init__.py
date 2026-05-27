@@ -152,7 +152,7 @@ class Server:
         self,
         daemon_id: str,
         command: str,
-        timeout_secs: int = 300,
+        timeout: int = 300,
         env: Optional[Dict[str, str]] = None,
         cwd: Optional[str] = None,
     ) -> CommandResult:
@@ -161,7 +161,7 @@ class Server:
         Args:
             daemon_id: Target daemon ID
             command: Command to execute (shell string)
-            timeout_secs: Execution timeout in seconds (default: 300)
+            timeout: Execution timeout in seconds (default: 300)
             env: Environment variables to set
             cwd: Working directory
 
@@ -179,7 +179,7 @@ class Server:
             ...     print(result.stdout)
         """
         result = self._server.execute_command(
-            daemon_id, command, timeout_secs, env, cwd
+            daemon_id, command, timeout, env, cwd
         )
         return CommandResult(result)
 

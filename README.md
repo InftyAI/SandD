@@ -128,7 +128,7 @@ result = server.execute_command(
 result = server.execute_command(
     "worker-1",
     "python long_script.py",
-    timeout_secs=600,
+    timeout=600,
     cwd="/opt/app"
 )
 ```
