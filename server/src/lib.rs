@@ -1,5 +1,6 @@
 // Allow dead code and unused imports for MVP
 #![allow(dead_code)]
+#![allow(non_local_definitions)]
 
 mod protocol;
 mod registry;
@@ -16,7 +17,7 @@ use tracing_subscriber;
 use uuid::Uuid;
 
 use protocol::Message;
-use registry::{CommandResult, DaemonRegistry};
+use registry::DaemonRegistry;
 use server::SandboxServer;
 
 /// Python wrapper for the Rust server
