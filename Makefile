@@ -1,4 +1,5 @@
 RUFF := .venv/bin/ruff
+PYTEST := .venv/bin/pytest
 
 .PHONY: help build install dev test clean daemon-build daemon-release
 
@@ -22,7 +23,7 @@ release:
 dev:
 	maturin develop -m server/Cargo.toml
 
-test: lint
+test: lint $(PYTEST)
 	@echo "Running Rust tests (daemon)..."
 	cargo test --package sandd
 	@echo ""
@@ -30,7 +31,7 @@ test: lint
 	cargo test --package sandbox-server --lib
 	@echo ""
 	@echo "Running Python tests..."
-	pytest python/tests/
+	$(PYTEST) python/tests/
 
 daemon-build:
 	cargo build --package sandd
@@ -55,3 +56,9 @@ $(RUFF):
 	@python3 -m venv .venv || true
 	@.venv/bin/pip install --quiet ruff
 	@echo "Ruff installed successfully"
+
+$(PYTEST):
+	@echo "Installing pytest..."
+	@python3 -m venv .venv || true
+	@.venv/bin/pip install --quiet pytest pytest-asyncio
+	@echo "Pytest installed successfully"
