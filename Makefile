@@ -23,7 +23,7 @@ release:
 dev:
 	maturin develop -m server/Cargo.toml
 
-test: lint $(PYTEST)
+test: lint $(PYTEST) dev
 	@echo "Running Rust tests (daemon)..."
 	cargo test --package sandd
 	@echo ""
