@@ -1,15 +1,12 @@
 // Allow dead code and unused imports for MVP
 #![allow(dead_code)]
-#![allow(unused_imports)]
-#![allow(unused_variables)]
-#![allow(non_local_definitions)]
 
 mod protocol;
 mod registry;
 mod server;
 
-use pyo3::prelude::*;
 use pyo3::exceptions::{PyRuntimeError, PyTimeoutError, PyValueError};
+use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -153,12 +150,7 @@ impl Server {
     }
 
     /// Upload a file to a daemon
-    fn upload_file(
-        &self,
-        daemon_id: String,
-        remote_path: String,
-        data: Vec<u8>,
-    ) -> PyResult<()> {
+    fn upload_file(&self, daemon_id: String, remote_path: String, data: Vec<u8>) -> PyResult<()> {
         let conn = self
             .registry
             .get(&daemon_id)
@@ -275,10 +267,7 @@ impl ShellSession {
     fn read(&self, timeout: f64) -> PyResult<Option<Vec<u8>>> {
         self.runtime_handle.block_on(async {
             let mut rx = self.output_rx.lock().await;
-            match tokio::time::timeout(
-                Duration::from_secs_f64(timeout),
-                rx.recv()
-            ).await {
+            match tokio::time::timeout(Duration::from_secs_f64(timeout), rx.recv()).await {
                 Ok(Some(data)) => Ok(Some(data)),
                 Ok(None) => Ok(None),
                 Err(_) => Ok(None), // Timeout
