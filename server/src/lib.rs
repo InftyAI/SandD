@@ -1,3 +1,9 @@
+// Allow dead code and unused imports for MVP
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(non_local_definitions)]
+
 mod protocol;
 mod registry;
 mod server;
