@@ -1,5 +1,6 @@
 RUFF := .venv/bin/ruff
 PYTEST := .venv/bin/pytest
+MATURIN := .venv/bin/maturin
 
 .PHONY: help build install dev test clean daemon-build daemon-release
 
@@ -14,14 +15,14 @@ help:
 	@echo "  make daemon-release - Build daemon binary (release)"
 	@echo "  make clean          - Clean build artifacts"
 
-build:
-	maturin build -m server/Cargo.toml
+build: $(MATURIN)
+	$(MATURIN) build -m server/Cargo.toml
 
-release:
-	maturin develop --release -m server/Cargo.toml
+release: $(MATURIN)
+	$(MATURIN) develop --release -m server/Cargo.toml
 
-dev:
-	maturin develop -m server/Cargo.toml
+dev: $(MATURIN)
+	$(MATURIN) develop -m server/Cargo.toml
 
 test: lint $(PYTEST) dev
 	@echo "Running Rust tests (daemon)..."
@@ -62,3 +63,9 @@ $(PYTEST):
 	@python3 -m venv .venv || true
 	@.venv/bin/pip install --quiet pytest pytest-asyncio
 	@echo "Pytest installed successfully"
+
+$(MATURIN):
+	@echo "Installing maturin..."
+	@python3 -m venv .venv || true
+	@.venv/bin/pip install --quiet maturin
+	@echo "Maturin installed successfully"
