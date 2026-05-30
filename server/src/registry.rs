@@ -177,7 +177,7 @@ impl DaemonRegistry {
         let id = conn.id.clone();
         let arc_conn = Arc::new(conn);
 
-        if let Some(old) = self.connections.insert(id.clone(), arc_conn.clone()) {
+        if let Some(_old) = self.connections.insert(id.clone(), arc_conn.clone()) {
             warn!("Daemon {} reconnected, replacing old connection", id);
         } else {
             info!("Daemon {} registered", id);
