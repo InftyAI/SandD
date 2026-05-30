@@ -1,3 +1,5 @@
+RUFF := .venv/bin/ruff
+
 .PHONY: help build install dev test clean daemon-build daemon-release
 
 help:
@@ -20,8 +22,15 @@ release:
 dev:
 	maturin develop -m server/Cargo.toml
 
-test:
-	pytest tests/
+test: lint
+	@echo "Running Rust tests (daemon)..."
+	cargo test --package sandd
+	@echo ""
+	@echo "Running Rust tests (server protocol)..."
+	cargo test --package sandbox-server --lib
+	@echo ""
+	@echo "Running Python tests..."
+	pytest python/tests/
 
 daemon-build:
 	cargo build --package sandd
@@ -36,3 +45,13 @@ clean:
 	rm -rf target/
 	rm -rf python/sandd.egg-info/
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+
+.PHONY: lint
+lint: $(RUFF)
+	$(RUFF) check .
+
+$(RUFF):
+	@echo "Installing ruff..."
+	@python3 -m venv .venv || true
+	@.venv/bin/pip install --quiet ruff
+	@echo "Ruff installed successfully"

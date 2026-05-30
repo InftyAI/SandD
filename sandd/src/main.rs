@@ -61,10 +61,7 @@ async fn main() -> Result<()> {
             Err(e) => error!("Connection error: {}", e),
         }
 
-        warn!(
-            "Reconnecting in {} seconds...",
-            args.reconnect_interval
-        );
+        warn!("Reconnecting in {} seconds...", args.reconnect_interval);
         tokio::time::sleep(Duration::from_secs(args.reconnect_interval)).await;
     }
 }
@@ -81,7 +78,7 @@ async fn connect_and_serve(
     let mut request = server_url.into_client_request()?;
     request.headers_mut().insert(
         "Sec-WebSocket-Protocol",
-        tokio_tungstenite::tungstenite::http::HeaderValue::from_static("sandd.v1")
+        tokio_tungstenite::tungstenite::http::HeaderValue::from_static("sandd.v1"),
     );
 
     let (ws_stream, response) = match tokio_tungstenite::connect_async(request).await {
@@ -184,13 +181,7 @@ async fn connect_and_serve(
         };
 
         // Handle message inline
-        if let Err(e) = handle_message(
-            message,
-            ws_tx_clone.clone(),
-            executor.clone(),
-        )
-        .await
-        {
+        if let Err(e) = handle_message(message, ws_tx_clone.clone(), executor.clone()).await {
             error!("Error handling message: {}", e);
         }
     }
@@ -245,13 +236,11 @@ where
 
                 let json = serde_json::to_string(&response)?;
                 let mut tx = ws_tx.lock().await;
-                tx.send(WsMessage::Text(json)).await.map_err(|e| anyhow::anyhow!("{}", e))?;
+                tx.send(WsMessage::Text(json)).await?
             } else {
                 // Normal shell execution
                 debug!("Executing command: {}", command);
-                let result = executor
-                    .execute(&command, timeout_secs, env, cwd)
-                    .await;
+                let result = executor.execute(&command, timeout_secs, env, cwd).await;
 
                 let response = match result {
                     Ok(output) => Message::CommandOutput {
@@ -269,7 +258,9 @@ where
 
                 let json = serde_json::to_string(&response)?;
                 let mut tx = ws_tx.lock().await;
-                tx.send(WsMessage::Text(json)).await.map_err(|e| anyhow::anyhow!("{}", e))?;
+                tx.send(WsMessage::Text(json))
+                    .await
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
             }
         }
 
@@ -279,7 +270,10 @@ where
             cols: _,
             term: _,
         } => {
-            debug!("Starting shell session: {} (not implemented in MVP)", request_id);
+            debug!(
+                "Starting shell session: {} (not implemented in MVP)",
+                request_id
+            );
 
             // TODO: Shell functionality disabled for MVP due to PtySystem Sync issues
             let response = Message::ShellStarted {
@@ -290,10 +284,15 @@ where
 
             let json = serde_json::to_string(&response)?;
             let mut tx = ws_tx.lock().await;
-            tx.send(WsMessage::Text(json)).await.map_err(|e| anyhow::anyhow!("{}", e))?;
+            tx.send(WsMessage::Text(json))
+                .await
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
         }
 
-        Message::ShellInput { request_id: _, data: _ } => {
+        Message::ShellInput {
+            request_id: _,
+            data: _,
+        } => {
             debug!("Shell input (not implemented)");
             // TODO: Shell functionality disabled for MVP
         }
@@ -324,7 +323,11 @@ where
             offset,
         } => {
             // In a full implementation, write chunks to file
-            debug!("Received file chunk: {} bytes at offset {}", data.len(), offset);
+            debug!(
+                "Received file chunk: {} bytes at offset {}",
+                data.len(),
+                offset
+            );
         }
 
         Message::FileDownloadStart { request_id, path } => {

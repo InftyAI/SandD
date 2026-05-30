@@ -1,6 +1,6 @@
 use crate::protocol::Message;
 use crate::registry::{CommandResult, DaemonConnection, DaemonRegistry};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use axum::{
     extract::{
         ws::{WebSocket, WebSocketUpgrade},
@@ -14,7 +14,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 pub struct SandboxServer {

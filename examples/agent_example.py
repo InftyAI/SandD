@@ -36,7 +36,7 @@ def main():
 
     # Get server stats
     stats = server.get_stats()
-    print(f"Server stats:")
+    print("Server stats:")
     print(f"  Total daemons: {stats.total_daemons}")
     print(f"  By platform: {stats.by_platform}")
     print(f"  Oldest connection: {stats.oldest_connection_secs}s")
