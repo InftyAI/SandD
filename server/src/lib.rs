@@ -76,14 +76,14 @@ impl Server {
             .get(&daemon_id)
             .ok_or_else(|| PyValueError::new_err(format!("Daemon {} not found", daemon_id)))?;
 
-        let command_id = Uuid::new_v4().to_string();
+        let request_id = Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
 
-        conn.register_command(command_id.clone(), tx);
+        conn.register_command(request_id.clone(), tx);
 
         // Send command to daemon
         let msg = Message::ExecuteCommand {
-            command_id: command_id.clone(),
+            request_id: request_id.clone(),
             command,
             timeout_secs: timeout,
             env: env.unwrap_or_default(),
@@ -122,13 +122,13 @@ impl Server {
             .get(&daemon_id)
             .ok_or_else(|| PyValueError::new_err(format!("Daemon {} not found", daemon_id)))?;
 
-        let session_id = Uuid::new_v4().to_string();
+        let request_id = Uuid::new_v4().to_string();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-        conn.register_shell_session(session_id.clone(), tx);
+        conn.register_shell_session(request_id.clone(), tx);
 
         let msg = Message::StartShell {
-            session_id: session_id.clone(),
+            request_id: request_id.clone(),
             rows,
             cols,
             term,
@@ -138,7 +138,7 @@ impl Server {
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to start shell: {}", e)))?;
 
         Ok(ShellSession {
-            session_id,
+            session_id: request_id,
             daemon_id,
             registry: self.registry.clone(),
             runtime_handle: self.runtime.handle().clone(),
@@ -158,13 +158,13 @@ impl Server {
             .get(&daemon_id)
             .ok_or_else(|| PyValueError::new_err(format!("Daemon {} not found", daemon_id)))?;
 
-        let transfer_id = Uuid::new_v4().to_string();
+        let request_id = Uuid::new_v4().to_string();
         const CHUNK_SIZE: usize = 64 * 1024; // 64KB chunks
 
         self.runtime.block_on(async {
             // Send start message
             let start_msg = Message::FileUploadStart {
-                transfer_id: transfer_id.clone(),
+                request_id: request_id.clone(),
                 path: remote_path,
                 total_size: data.len() as u64,
                 mode: None,
@@ -175,7 +175,7 @@ impl Server {
             // Send chunks
             for (offset, chunk) in data.chunks(CHUNK_SIZE).enumerate() {
                 let chunk_msg = Message::FileUploadChunk {
-                    transfer_id: transfer_id.clone(),
+                    request_id: request_id.clone(),
                     data: chunk.to_vec(),
                     offset: (offset * CHUNK_SIZE) as u64,
                 };
@@ -194,13 +194,13 @@ impl Server {
             .get(&daemon_id)
             .ok_or_else(|| PyValueError::new_err(format!("Daemon {} not found", daemon_id)))?;
 
-        let transfer_id = Uuid::new_v4().to_string();
+        let request_id = Uuid::new_v4().to_string();
 
         self.runtime.block_on(async {
-            conn.start_file_transfer(transfer_id.clone(), remote_path.clone(), 0);
+            conn.start_file_transfer(request_id.clone(), remote_path.clone(), 0);
 
             let msg = Message::FileDownloadStart {
-                transfer_id: transfer_id.clone(),
+                request_id: request_id.clone(),
                 path: remote_path,
             };
 
@@ -210,7 +210,7 @@ impl Server {
             // Wait for transfer to complete (with timeout)
             tokio::time::sleep(Duration::from_secs(5)).await;
 
-            conn.complete_file_transfer(&transfer_id)
+            conn.complete_file_transfer(&request_id)
                 .ok_or_else(|| PyRuntimeError::new_err("File transfer did not complete"))
         })
     }
@@ -256,7 +256,7 @@ impl ShellSession {
             .ok_or_else(|| PyRuntimeError::new_err("Daemon disconnected"))?;
 
         let msg = Message::ShellInput {
-            session_id: self.session_id.clone(),
+            request_id: self.session_id.clone(),
             data,
         };
 
@@ -288,7 +288,7 @@ impl ShellSession {
             .ok_or_else(|| PyRuntimeError::new_err("Daemon disconnected"))?;
 
         let msg = Message::ShellResize {
-            session_id: self.session_id.clone(),
+            request_id: self.session_id.clone(),
             rows,
             cols,
         };

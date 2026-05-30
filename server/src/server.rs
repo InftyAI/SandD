@@ -207,7 +207,7 @@ async fn handle_daemon_message(
         }
 
         Message::CommandOutput {
-            command_id,
+            request_id,
             stdout,
             stderr,
             exit_code,
@@ -215,9 +215,9 @@ async fn handle_daemon_message(
         } => {
             if let Some(ref id) = daemon_id {
                 if let Some(conn) = registry.get(id) {
-                    debug!("Command {} completed on daemon {}", command_id, id);
+                    debug!("Command {} completed on daemon {}", request_id, id);
                     conn.complete_command(
-                        &command_id,
+                        &request_id,
                         CommandResult {
                             stdout,
                             stderr,
@@ -229,40 +229,40 @@ async fn handle_daemon_message(
             }
         }
 
-        Message::ShellOutput { session_id, data } => {
+        Message::ShellOutput { request_id, data } => {
             if let Some(ref id) = daemon_id {
                 if let Some(conn) = registry.get(id) {
-                    conn.send_shell_output(&session_id, data);
+                    conn.send_shell_output(&request_id, data);
                 }
             }
         }
 
         Message::ShellExit {
-            session_id,
+            request_id,
             exit_code,
         } => {
             if let Some(ref id) = daemon_id {
                 if let Some(conn) = registry.get(id) {
                     debug!(
                         "Shell session {} exited with code {} on daemon {}",
-                        session_id, exit_code, id
+                        request_id, exit_code, id
                     );
-                    conn.close_shell_session(&session_id);
+                    conn.close_shell_session(&request_id);
                 }
             }
         }
 
         Message::FileDownloadChunk {
-            transfer_id,
+            request_id,
             data,
             is_last,
             ..
         } => {
             if let Some(ref id) = daemon_id {
                 if let Some(conn) = registry.get(id) {
-                    conn.add_file_chunk(&transfer_id, data);
+                    conn.add_file_chunk(&request_id, data);
                     if is_last {
-                        debug!("File transfer {} completed on daemon {}", transfer_id, id);
+                        debug!("File transfer {} completed on daemon {}", request_id, id);
                     }
                 }
             }
