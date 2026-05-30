@@ -1,3 +1,7 @@
+// Shell functionality is disabled in MVP, allow dead code warnings
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
 mod executor;
 mod protocol;
 mod shell;
