@@ -3,7 +3,6 @@ use anyhow::{anyhow, Result};
 use futures_util::SinkExt;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize, PtySystem};
 use std::collections::HashMap;
-use std::io::Write;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use tokio::sync::Mutex;
@@ -97,7 +96,7 @@ impl ShellManager {
 
                         // Send exit message
                         let exit_msg = Message::ShellExit {
-                            session_id: session_id_clone.clone(),
+                            request_id: session_id_clone.clone(),
                             exit_code: 0,
                         };
 
@@ -112,7 +111,7 @@ impl ShellManager {
                         let data = buffer[..n].to_vec();
 
                         let output_msg = Message::ShellOutput {
-                            session_id: session_id_clone.clone(),
+                            request_id: session_id_clone.clone(),
                             data,
                         };
 

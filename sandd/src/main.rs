@@ -2,7 +2,7 @@ mod executor;
 mod protocol;
 mod shell;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
 use executor::CommandExecutor;
 use futures_util::{SinkExt, StreamExt};
@@ -212,47 +212,78 @@ where
 {
     match message {
         Message::ExecuteCommand {
-            command_id,
+            request_id,
             command,
             timeout_secs,
             env,
             cwd,
         } => {
-            debug!("Executing command: {}", command);
-            let result = executor
-                .execute(&command, timeout_secs, env, cwd)
-                .await;
+            // Check for in-tree commands (sandd_* prefix)
+            if let Some(intree_cmd) = command.strip_prefix("sandd_") {
+                debug!("Handling in-tree command: {}", intree_cmd);
 
-            let response = match result {
-                Ok(output) => Message::CommandOutput {
-                    command_id,
-                    stdout: output.stdout,
-                    stderr: output.stderr,
-                    exit_code: output.exit_code,
-                    duration_ms: output.duration_ms,
-                },
-                Err(e) => Message::CommandError {
-                    command_id,
-                    error: e.to_string(),
-                },
-            };
+                let start = std::time::Instant::now();
+                let result = handle_intree_command(intree_cmd).await;
+                let duration_ms = start.elapsed().as_millis() as u64;
 
-            let json = serde_json::to_string(&response)?;
-            let mut tx = ws_tx.lock().await;
-            tx.send(WsMessage::Text(json)).await.map_err(|e| anyhow::anyhow!("{}", e))?;
+                let response = match result {
+                    Ok(output) => Message::CommandOutput {
+                        request_id,
+                        stdout: output,
+                        stderr: String::new(),
+                        exit_code: 0,
+                        duration_ms,
+                    },
+                    Err(e) => Message::CommandOutput {
+                        request_id,
+                        stdout: String::new(),
+                        stderr: format!("In-tree command error: {}", e),
+                        exit_code: 1,
+                        duration_ms,
+                    },
+                };
+
+                let json = serde_json::to_string(&response)?;
+                let mut tx = ws_tx.lock().await;
+                tx.send(WsMessage::Text(json)).await.map_err(|e| anyhow::anyhow!("{}", e))?;
+            } else {
+                // Normal shell execution
+                debug!("Executing command: {}", command);
+                let result = executor
+                    .execute(&command, timeout_secs, env, cwd)
+                    .await;
+
+                let response = match result {
+                    Ok(output) => Message::CommandOutput {
+                        request_id,
+                        stdout: output.stdout,
+                        stderr: output.stderr,
+                        exit_code: output.exit_code,
+                        duration_ms: output.duration_ms,
+                    },
+                    Err(e) => Message::CommandError {
+                        request_id,
+                        error: e.to_string(),
+                    },
+                };
+
+                let json = serde_json::to_string(&response)?;
+                let mut tx = ws_tx.lock().await;
+                tx.send(WsMessage::Text(json)).await.map_err(|e| anyhow::anyhow!("{}", e))?;
+            }
         }
 
         Message::StartShell {
-            session_id,
+            request_id,
             rows: _,
             cols: _,
             term: _,
         } => {
-            debug!("Starting shell session: {} (not implemented in MVP)", session_id);
+            debug!("Starting shell session: {} (not implemented in MVP)", request_id);
 
             // TODO: Shell functionality disabled for MVP due to PtySystem Sync issues
             let response = Message::ShellStarted {
-                session_id,
+                request_id,
                 success: false,
                 error: Some("Shell functionality not implemented in MVP".to_string()),
             };
@@ -262,25 +293,25 @@ where
             tx.send(WsMessage::Text(json)).await.map_err(|e| anyhow::anyhow!("{}", e))?;
         }
 
-        Message::ShellInput { session_id, data: _ } => {
-            debug!("Shell input for {} (not implemented)", session_id);
+        Message::ShellInput { request_id: _, data: _ } => {
+            debug!("Shell input (not implemented)");
             // TODO: Shell functionality disabled for MVP
         }
 
         Message::ShellResize {
-            session_id,
+            request_id: _,
             rows: _,
             cols: _,
         } => {
-            debug!("Shell resize for {} (not implemented)", session_id);
+            debug!("Shell resize (not implemented)");
             // TODO: Shell functionality disabled for MVP
         }
 
         Message::FileUploadStart {
-            transfer_id,
+            request_id: _,
             path,
             total_size,
-            mode,
+            mode: _,
         } => {
             debug!("Starting file upload: {} ({} bytes)", path, total_size);
             // File upload will be handled by subsequent chunks
@@ -288,7 +319,7 @@ where
         }
 
         Message::FileUploadChunk {
-            transfer_id,
+            request_id: _,
             data,
             offset,
         } => {
@@ -296,7 +327,7 @@ where
             debug!("Received file chunk: {} bytes at offset {}", data.len(), offset);
         }
 
-        Message::FileDownloadStart { transfer_id, path } => {
+        Message::FileDownloadStart { request_id, path } => {
             debug!("Starting file download: {}", path);
 
             // Read file and send chunks
@@ -306,7 +337,7 @@ where
                     for (i, chunk) in data.chunks(CHUNK_SIZE).enumerate() {
                         let is_last = (i + 1) * CHUNK_SIZE >= data.len();
                         let response = Message::FileDownloadChunk {
-                            transfer_id: transfer_id.clone(),
+                            request_id: request_id.clone(),
                             data: chunk.to_vec(),
                             offset: (i * CHUNK_SIZE) as u64,
                             is_last,
@@ -319,7 +350,7 @@ where
                 }
                 Err(e) => {
                     let response = Message::FileDownloadError {
-                        transfer_id,
+                        request_id,
                         error: e.to_string(),
                     };
                     let json = serde_json::to_string(&response)?;
@@ -335,4 +366,10 @@ where
     }
 
     Ok(())
+}
+
+async fn handle_intree_command(cmd: &str) -> Result<String> {
+    match cmd {
+        _ => Err(anyhow::anyhow!("Unknown in-tree command: {}", cmd)),
+    }
 }

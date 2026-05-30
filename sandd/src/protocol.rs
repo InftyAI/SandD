@@ -17,7 +17,7 @@ pub enum Message {
     Heartbeat,
     Pong,
     ExecuteCommand {
-        command_id: String,
+        request_id: String,
         command: String,
         #[serde(default = "default_timeout")]
         timeout_secs: u64,
@@ -27,78 +27,78 @@ pub enum Message {
         cwd: Option<String>,
     },
     CommandOutput {
-        command_id: String,
+        request_id: String,
         stdout: String,
         stderr: String,
         exit_code: i32,
         duration_ms: u64,
     },
     CommandError {
-        command_id: String,
+        request_id: String,
         error: String,
     },
     StartShell {
-        session_id: String,
+        request_id: String,
         rows: u16,
         cols: u16,
         #[serde(default = "default_term")]
         term: String,
     },
     ShellStarted {
-        session_id: String,
+        request_id: String,
         success: bool,
         error: Option<String>,
     },
     ShellInput {
-        session_id: String,
+        request_id: String,
         #[serde(with = "base64_bytes")]
         data: Vec<u8>,
     },
     ShellOutput {
-        session_id: String,
+        request_id: String,
         #[serde(with = "base64_bytes")]
         data: Vec<u8>,
     },
     ShellResize {
-        session_id: String,
+        request_id: String,
         rows: u16,
         cols: u16,
     },
     ShellExit {
-        session_id: String,
+        request_id: String,
         exit_code: i32,
     },
     FileUploadStart {
-        transfer_id: String,
+        request_id: String,
         path: String,
         total_size: u64,
         #[serde(default)]
         mode: Option<u32>,
     },
     FileUploadChunk {
-        transfer_id: String,
+        request_id: String,
         #[serde(with = "base64_bytes")]
         data: Vec<u8>,
         offset: u64,
     },
     FileUploadComplete {
-        transfer_id: String,
+        request_id: String,
         success: bool,
         error: Option<String>,
     },
     FileDownloadStart {
-        transfer_id: String,
+        request_id: String,
         path: String,
     },
     FileDownloadChunk {
-        transfer_id: String,
+        request_id: String,
         #[serde(with = "base64_bytes")]
         data: Vec<u8>,
         offset: u64,
         is_last: bool,
     },
     FileDownloadError {
-        transfer_id: String,
+        request_id: String,
         error: String,
     },
     Error {
