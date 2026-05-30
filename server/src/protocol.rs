@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 /// Protocol messages exchanged between agent and daemon
 #[derive(Debug, Clone, Serialize, Deserialize)]
