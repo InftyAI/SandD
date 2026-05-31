@@ -271,8 +271,8 @@ class Server:
         """List all connected daemon IDs, optionally filtered by label
 
         Args:
-            label_key: Filter by this label key
-            label_value: Filter by this label value (requires label_key)
+            label_key: Label key to filter by (only applied when label_value is also provided)
+            label_value: Label value to filter by (only applied when label_key is also provided)
 
         Returns:
             List of daemon IDs

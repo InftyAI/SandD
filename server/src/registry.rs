@@ -203,7 +203,11 @@ impl DaemonRegistry {
                 match (label_key, label_value) {
                     (Some(key), Some(value)) => {
                         // Filter by label
-                        entry.value().metadata.labels.get(key)
+                        entry
+                            .value()
+                            .metadata
+                            .labels
+                            .get(key)
                             .map(|v| v == value)
                             .unwrap_or(false)
                     }
@@ -509,7 +513,6 @@ mod tests {
         assert_eq!(stats.by_platform.len(), 2);
         assert_eq!(stats.by_platform.get("linux"), Some(&2));
         assert_eq!(stats.by_platform.get("darwin"), Some(&1));
-        assert!(stats.oldest_connection_secs >= 0);
     }
 
     #[test]
@@ -537,7 +540,9 @@ mod tests {
         let arc_conn = registry.register(conn);
 
         // Manually set old heartbeat
-        arc_conn.last_heartbeat.store(0, std::sync::atomic::Ordering::Relaxed);
+        arc_conn
+            .last_heartbeat
+            .store(0, std::sync::atomic::Ordering::Relaxed);
 
         // Wait a moment
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
@@ -554,14 +559,18 @@ mod tests {
         let metadata = create_test_metadata("host1", "linux");
         let conn = DaemonConnection::new("daemon-1".to_string(), metadata, tx);
 
-        let initial_heartbeat = conn.last_heartbeat.load(std::sync::atomic::Ordering::Relaxed);
+        let initial_heartbeat = conn
+            .last_heartbeat
+            .load(std::sync::atomic::Ordering::Relaxed);
         assert!(initial_heartbeat > 0);
 
         // Update heartbeat
         std::thread::sleep(std::time::Duration::from_millis(100));
         conn.update_heartbeat();
 
-        let new_heartbeat = conn.last_heartbeat.load(std::sync::atomic::Ordering::Relaxed);
+        let new_heartbeat = conn
+            .last_heartbeat
+            .load(std::sync::atomic::Ordering::Relaxed);
         assert!(new_heartbeat >= initial_heartbeat);
     }
 
@@ -575,7 +584,8 @@ mod tests {
         assert_eq!(since, 0);
 
         // Set old heartbeat
-        conn.last_heartbeat.store(0, std::sync::atomic::Ordering::Relaxed);
+        conn.last_heartbeat
+            .store(0, std::sync::atomic::Ordering::Relaxed);
 
         let since = conn.seconds_since_heartbeat();
         assert!(since > 0);

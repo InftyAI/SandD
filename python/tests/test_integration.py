@@ -49,8 +49,8 @@ def daemon_process(server, sandd_binary):
     # Start daemon process
     proc = subprocess.Popen(
         [sandd_binary, "--server-url", server_url, "--daemon-id", daemon_id],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
     # Wait for daemon to connect
@@ -98,13 +98,14 @@ class TestDaemonConnection:
 
                 proc = subprocess.Popen(
                     [sandd_binary, "--server-url", server_url, "--daemon-id", daemon_id],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                 )
                 daemon_procs.append(proc)
 
             # Wait for all to connect
-            time.sleep(2)
+            for daemon_id in daemon_ids:
+                assert server.wait_for_daemon(daemon_id, timeout=5.0)
 
             # Verify all connected
             daemons = server.list_daemons()
@@ -122,28 +123,70 @@ class TestDaemonConnection:
                     proc.kill()
 
     def test_daemon_with_labels(self, server, sandd_binary):
-        """Test daemon connection with labels"""
-        daemon_id = f"test-labeled-daemon-{os.getpid()}"
+        """Test daemon connection with labels and label-based filtering"""
+        # Start daemon with env=prod and region=us-west labels
+        daemon_id_prod = f"test-prod-daemon-{os.getpid()}"
         server_url = f"ws://127.0.0.1:{server.address.split(':')[1]}/ws"
 
-        # Note: Current implementation doesn't support --label flag
-        # This test demonstrates what SHOULD work when labels are added
-        proc = subprocess.Popen(
-            [sandd_binary, "--server-url", server_url, "--daemon-id", daemon_id],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+        proc_prod = subprocess.Popen(
+            [
+                sandd_binary,
+                "--server-url", server_url,
+                "--daemon-id", daemon_id_prod,
+                "--label", "env=prod",
+                "--label", "region=us-west",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        # Start daemon with env=dev label
+        daemon_id_dev = f"test-dev-daemon-{os.getpid()}"
+        proc_dev = subprocess.Popen(
+            [
+                sandd_binary,
+                "--server-url", server_url,
+                "--daemon-id", daemon_id_dev,
+                "--label", "env=dev",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
 
         try:
-            connected = server.wait_for_daemon(daemon_id, timeout=5.0)
-            assert connected
+            # Wait for both to connect
+            assert server.wait_for_daemon(daemon_id_prod, timeout=5.0)
+            assert server.wait_for_daemon(daemon_id_dev, timeout=5.0)
 
-            # For now, just verify basic listing works
+            # Test: list all daemons (no filter)
             all_daemons = server.list_daemons()
-            assert daemon_id in all_daemons
+            assert daemon_id_prod in all_daemons
+            assert daemon_id_dev in all_daemons
+            assert len(all_daemons) >= 2
+
+            # Test: filter by env=prod
+            prod_daemons = server.list_daemons(label_key="env", label_value="prod")
+            assert daemon_id_prod in prod_daemons
+            assert daemon_id_dev not in prod_daemons
+
+            # Test: filter by env=dev
+            dev_daemons = server.list_daemons(label_key="env", label_value="dev")
+            assert daemon_id_dev in dev_daemons
+            assert daemon_id_prod not in dev_daemons
+
+            # Test: filter by region=us-west
+            region_daemons = server.list_daemons(label_key="region", label_value="us-west")
+            assert daemon_id_prod in region_daemons
+            assert daemon_id_dev not in region_daemons
+
+            # Test: filter by non-existent label
+            none_daemons = server.list_daemons(label_key="env", label_value="staging")
+            assert daemon_id_prod not in none_daemons
+            assert daemon_id_dev not in none_daemons
 
         finally:
-            proc.kill()
+            proc_prod.kill()
+            proc_dev.kill()
 
 
 class TestCommandExecution:
