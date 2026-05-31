@@ -118,7 +118,7 @@ class TestDaemonConnection:
                 try:
                     proc.send_signal(signal.SIGTERM)
                     proc.wait(timeout=2)
-                except:
+                except:  # noqa: E722
                     proc.kill()
 
     def test_daemon_with_labels(self, server, sandd_binary):
