@@ -81,8 +81,14 @@ mod tests {
     #[tokio::test]
     async fn test_simple_command() {
         let executor = CommandExecutor::new();
+
+        #[cfg(unix)]
+        let cmd = "sleep 0.05 && echo hello";
+        #[cfg(windows)]
+        let cmd = "timeout /t 1 /nobreak && echo hello";
+
         let result = executor
-            .execute("echo hello", 10, HashMap::new(), None)
+            .execute(cmd, 10, HashMap::new(), None)
             .await
             .unwrap();
 
@@ -220,7 +226,7 @@ mod tests {
         let executor = CommandExecutor::new();
 
         #[cfg(unix)]
-        let cmd = "for i in {1..1000}; do echo 'Line $i'; done";
+        let cmd = r#"for i in $(seq 1 1000); do echo "Line $i"; done"#;
         #[cfg(windows)]
         let cmd = "for /l %i in (1,1,1000) do @echo Line %i";
 
