@@ -114,6 +114,10 @@ print(f"Output: {result.stdout}")
 # ... repeat for n+ machines
 ```
 
+## Examples
+
+See the [examples/](./examples) directory for common use cases.
+
 ## Development
 
 See [DEVELOP.md](./docs/DEVELOP.md) for the complete developer guide including build commands, testing, and troubleshooting.
