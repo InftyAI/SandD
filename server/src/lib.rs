@@ -214,9 +214,16 @@ impl Server {
         })
     }
 
-    /// List all connected daemons
-    fn list_daemons(&self) -> PyResult<Vec<String>> {
-        Ok(self.registry.list_all())
+    /// List all connected daemons, optionally filtered by label
+    #[pyo3(signature = (label_key=None, label_value=None))]
+    fn list_daemons(
+        &self,
+        label_key: Option<String>,
+        label_value: Option<String>,
+    ) -> PyResult<Vec<String>> {
+        let key_ref = label_key.as_deref();
+        let value_ref = label_value.as_deref();
+        Ok(self.registry.list_all(key_ref, value_ref))
     }
 
     /// Get daemon count

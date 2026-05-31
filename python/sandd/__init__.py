@@ -263,19 +263,31 @@ class Server:
         """
         return self._server.download_file(daemon_id, remote_path)
 
-    def list_daemons(self) -> List[str]:
-        """List all connected daemon IDs
+    def list_daemons(
+        self,
+        label_key: Optional[str] = None,
+        label_value: Optional[str] = None,
+    ) -> List[str]:
+        """List all connected daemon IDs, optionally filtered by label
+
+        Args:
+            label_key: Filter by this label key
+            label_value: Filter by this label value (requires label_key)
 
         Returns:
             List of daemon IDs
 
         Example:
+            >>> # List all daemons
             >>> daemons = server.list_daemons()
             >>> print(f"Connected: {len(daemons)} daemons")
-            >>> for daemon_id in daemons:
+            >>>
+            >>> # List daemons with env=prod label
+            >>> prod_daemons = server.list_daemons(label_key="env", label_value="prod")
+            >>> for daemon_id in prod_daemons:
             ...     print(f"  - {daemon_id}")
         """
-        return self._server.list_daemons()
+        return self._server.list_daemons(label_key, label_value)
 
     def daemon_count(self) -> int:
         """Get number of connected daemons

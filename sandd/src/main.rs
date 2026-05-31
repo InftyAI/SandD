@@ -37,6 +37,10 @@ struct Args {
     /// Heartbeat interval in seconds
     #[arg(long, default_value = "10")]
     heartbeat_interval: u64,
+
+    /// Labels in key=value format (e.g., --label env=prod --label region=us-west)
+    #[arg(short, long = "label", value_name = "KEY=VALUE")]
+    labels: Vec<String>,
 }
 
 #[tokio::main]
@@ -56,11 +60,24 @@ async fn main() -> Result<()> {
         .daemon_id
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
+    // Parse labels from key=value format
+    let mut labels = HashMap::new();
+    for label in &args.labels {
+        if let Some((key, value)) = label.split_once('=') {
+            labels.insert(key.to_string(), value.to_string());
+        } else {
+            warn!("Invalid label format (expected key=value): {}", label);
+        }
+    }
+
     info!("Starting sandbox daemon: {}", daemon_id);
+    if !labels.is_empty() {
+        info!("Labels: {:?}", labels);
+    }
 
     // Main connection loop with reconnection
     loop {
-        match connect_and_serve(&args.server_url, &daemon_id, args.heartbeat_interval).await {
+        match connect_and_serve(&args.server_url, &daemon_id, args.heartbeat_interval, labels.clone()).await {
             Ok(_) => info!("Connection closed gracefully"),
             Err(e) => error!("Connection error: {}", e),
         }
@@ -74,6 +91,7 @@ async fn connect_and_serve(
     server_url: &str,
     daemon_id: &str,
     heartbeat_interval: u64,
+    labels: HashMap<String, String>,
 ) -> Result<()> {
     info!("Connecting to server at {}", server_url);
 
@@ -110,7 +128,7 @@ async fn connect_and_serve(
         platform: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        labels: HashMap::new(),
+        labels,
     };
 
     // Send registration
