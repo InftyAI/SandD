@@ -1,0 +1,38 @@
+# Multi-stage build for SandD daemon - Rocky Linux (RHEL-based)
+# Use Rust builder stage
+FROM rust:1.85-slim as builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy workspace files
+COPY Cargo.toml Cargo.lock ./
+COPY sandd/ ./sandd/
+COPY server/ ./server/
+
+# Build the daemon binary in release mode
+RUN cargo build --package sandd --release
+
+# Runtime stage - Rocky Linux 9
+FROM rockylinux:9-minimal
+
+# Install runtime dependencies
+RUN microdnf install -y \
+    ca-certificates \
+    openssl-libs \
+    && microdnf clean all
+
+# Copy the binary from builder
+COPY --from=builder /app/target/release/sandd /usr/local/bin/sandd
+
+# Set working directory
+WORKDIR /workspace
+
+# Default command - can be overridden
+ENTRYPOINT ["/usr/local/bin/sandd"]
+CMD ["--help"]
