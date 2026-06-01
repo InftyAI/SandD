@@ -36,5 +36,8 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Run tests
+      - name: Run Unit tests
         run: make test
+
+      - name: Run E2E tests
+        run: make e2e-test

@@ -2,11 +2,11 @@
 
 # SandD
 
-**Sandbox Daemon for Secure Remote Command Execution**
+**A Lightweight Sandbox Daemon for Secure Agent Execution in Isolated Environments.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Rust-powered WebSocket server with Python API for secure command execution in isolated environments.
 

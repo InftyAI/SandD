@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # The daemon running in a container
+  daemon1:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+    container_name: sandd-daemon-1
+    command: >
+      --server-url ws://host.docker.internal:8765/ws
+      --daemon-id daemon-1
+      --label env=test
+      --label region=us-east
+    networks:
+      - sandd-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "sandd"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  daemon2:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+    container_name: sandd-daemon-2
+    command: >
+      --server-url ws://host.docker.internal:8765/ws
+      --daemon-id daemon-2
+      --label env=test
+      --label region=us-west
+    networks:
+      - sandd-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "sandd"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  daemon3:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+    container_name: sandd-daemon-3
+    command: >
+      --server-url ws://host.docker.internal:8765/ws
+      --daemon-id daemon-3
+      --label env=prod
+      --label region=eu-west
+    networks:
+      - sandd-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "sandd"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+networks:
+  sandd-network:
+    driver: bridge
