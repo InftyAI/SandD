@@ -1,0 +1,39 @@
+# Multi-stage build for SandD daemon - Alpine Linux (musl-based)
+# Build with musl target for Alpine compatibility
+FROM rust:1.85-alpine as builder
+
+WORKDIR /app
+
+# Install build dependencies for Alpine
+RUN apk add --no-cache \
+    musl-dev \
+    pkgconfig \
+    openssl-dev \
+    openssl-libs-static
+
+# Copy workspace files
+COPY Cargo.toml Cargo.lock ./
+COPY sandd/ ./sandd/
+COPY server/ ./server/
+
+# Build the daemon binary in release mode
+# Alpine uses musl libc, which is already the default target
+RUN cargo build --package sandd --release
+
+# Runtime stage - Alpine for minimal size
+FROM alpine:3.21
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    ca-certificates \
+    libgcc
+
+# Copy the binary from builder
+COPY --from=builder /app/target/release/sandd /usr/local/bin/sandd
+
+# Set working directory
+WORKDIR /workspace
+
+# Default command - can be overridden
+ENTRYPOINT ["/usr/local/bin/sandd"]
+CMD ["--help"]

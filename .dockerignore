@@ -1,3 +1,19 @@
 # More info: https://docs.docker.com/engine/reference/builder/#dockerignore-file
 # Ignore build and test binaries.
 bin/
+target/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.git/
+.github/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+.env
+docker-compose*.yml
+docs/
+examples/
+python/tests/

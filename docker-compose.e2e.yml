@@ -1,0 +1,141 @@
+version: '3.8'
+
+services:
+  # Debian-based daemons
+  daemon-debian-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.debian
+    container_name: sandd-daemon-debian-1
+    command: >
+      --server-url ws://host.docker.internal:8765/ws
+      --daemon-id daemon-debian-1
+      --label env=test
+      --label distro=debian
+      --label region=us-east
+    networks:
+      - sandd-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "sandd"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  daemon-debian-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.debian
+    container_name: sandd-daemon-debian-2
+    command: >
+      --server-url ws://host.docker.internal:8765/ws
+      --daemon-id daemon-debian-2
+      --label env=test
+      --label distro=debian
+      --label region=us-west
+    networks:
+      - sandd-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "sandd"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # Alpine-based daemons
+  daemon-alpine-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.alpine
+    container_name: sandd-daemon-alpine-1
+    command: >
+      --server-url ws://host.docker.internal:8765/ws
+      --daemon-id daemon-alpine-1
+      --label env=test
+      --label distro=alpine
+      --label region=eu-west
+    networks:
+      - sandd-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "sandd"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  daemon-alpine-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.alpine
+    container_name: sandd-daemon-alpine-2
+    command: >
+      --server-url ws://host.docker.internal:8765/ws
+      --daemon-id daemon-alpine-2
+      --label env=prod
+      --label distro=alpine
+      --label region=ap-south
+    networks:
+      - sandd-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "sandd"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # Rocky Linux-based daemons
+  daemon-rocky-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.rocky
+    container_name: sandd-daemon-rocky-1
+    command: >
+      --server-url ws://host.docker.internal:8765/ws
+      --daemon-id daemon-rocky-1
+      --label env=prod
+      --label distro=rocky
+      --label region=eu-central
+    networks:
+      - sandd-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "sandd"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  daemon-rocky-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.rocky
+    container_name: sandd-daemon-rocky-2
+    command: >
+      --server-url ws://host.docker.internal:8765/ws
+      --daemon-id daemon-rocky-2
+      --label env=test
+      --label distro=rocky
+      --label region=ap-northeast
+    networks:
+      - sandd-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "sandd"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+networks:
+  sandd-network:
+    driver: bridge

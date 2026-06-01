@@ -2,7 +2,7 @@ RUFF := .venv/bin/ruff
 PYTEST := .venv/bin/pytest
 MATURIN := .venv/bin/maturin
 
-.PHONY: help build install dev test clean daemon-build daemon-release
+.PHONY: help build install dev test clean daemon-build daemon-release test-e2e docker-build docker-down
 
 help:
 	@echo "SandD - Sandbox Daemon - Build Commands"
@@ -10,9 +10,12 @@ help:
 	@echo "  make build          - Build Python package (debug mode)"
 	@echo "  make install        - Install Python package locally"
 	@echo "  make dev            - Install in development mode with hot reload"
-	@echo "  make test           - Run tests"
+	@echo "  make test           - Run unit and integration tests"
+	@echo "  make test-e2e       - Run end-to-end tests with Docker"
 	@echo "  make daemon-build   - Build daemon binary (debug)"
 	@echo "  make daemon-release - Build daemon binary (release)"
+	@echo "  make docker-build   - Build Docker image for daemon"
+	@echo "  make docker-down    - Stop and remove Docker containers"
 	@echo "  make clean          - Clean build artifacts"
 
 build: $(MATURIN)
@@ -47,6 +50,25 @@ clean:
 	rm -rf target/
 	rm -rf python/sandd.egg-info/
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+
+test-e2e: $(PYTEST) dev
+	@echo "Building Docker images..."
+	docker compose -f docker-compose.e2e.yml build
+	@echo ""
+	@echo "Running E2E tests with Docker..."
+	$(PYTEST) python/tests/test_e2e.py -v -s
+	@echo ""
+	@echo "Cleaning up containers..."
+	docker compose -f docker-compose.e2e.yml down
+
+docker-build:
+	docker compose -f docker-compose.e2e.yml build
+
+docker-down:
+	docker compose -f docker-compose.e2e.yml down
+
+test-all: test test-e2e
+	@echo "All tests completed successfully"
 
 .PHONY: lint
 lint: $(RUFF)
