@@ -111,20 +111,28 @@ def main():
     print("Testing git functionality...")
     print("-" * 50)
 
-    # Create a test repo
+    # Create test directory
+    repo_path = "/tmp/test-repo"
+    result = server.execute_command(daemon_id, f"mkdir -p {repo_path}", timeout=10)
+    if result.success:
+        print(f"✓ Create test directory")
+    else:
+        print(f"✗ Create test directory: {result.stderr}")
+        return
+
+    # Commands that run inside the test repo - use cwd parameter
     test_commands = [
-        ("mkdir -p /tmp/test-repo && cd /tmp/test-repo", "Create test directory"),
-        ("git init", "Initialize git repo"),
-        ("git config user.name 'Test User'", "Configure user"),
-        ("git config user.email 'test@example.com'", "Configure email"),
-        ("echo 'Hello from SandD' > README.md", "Create file"),
-        ("git add README.md", "Stage file"),
-        ("git commit -m 'Initial commit'", "Create commit"),
-        ("git log --oneline", "Show commit"),
+        ("git init", "Initialize git repo", repo_path),
+        ("git config user.name 'Test User'", "Configure user", repo_path),
+        ("git config user.email 'test@example.com'", "Configure email", repo_path),
+        ("echo 'Hello from SandD' > README.md", "Create file", repo_path),
+        ("git add README.md", "Stage file", repo_path),
+        ("git commit -m 'Initial commit'", "Create commit", repo_path),
+        ("git log --oneline", "Show commit", repo_path),
     ]
 
-    for cmd, description in test_commands:
-        result = server.execute_command(daemon_id, cmd, timeout=10)
+    for cmd, description, cwd in test_commands:
+        result = server.execute_command(daemon_id, cmd, timeout=10, cwd=cwd)
         if result.success:
             print(f"✓ {description}")
             if "git log" in cmd:
