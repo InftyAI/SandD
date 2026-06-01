@@ -183,40 +183,40 @@ class TestE2EDistributionSpecific:
         """Test apt package manager on Debian daemons"""
         result = server.execute_command(
             "daemon-debian-1",
-            "apt-get update && apt-get install -y curl",
+            "apt-get update && apt-get install -y htop",
             timeout=60
         )
         assert result.success
 
-        result = server.execute_command("daemon-debian-1", "curl --version", timeout=5)
+        result = server.execute_command("daemon-debian-1", "htop --version", timeout=5)
         assert result.success
-        assert "curl" in result.stdout
+        assert "htop" in result.stdout.lower()
 
     def test_package_manager_alpine(self, server):
         """Test apk package manager on Alpine daemons"""
         result = server.execute_command(
             "daemon-alpine-1",
-            "apk update && apk add curl",
+            "apk update && apk add htop",
             timeout=60
         )
         assert result.success
 
-        result = server.execute_command("daemon-alpine-1", "curl --version", timeout=5)
+        result = server.execute_command("daemon-alpine-1", "htop --version", timeout=5)
         assert result.success
-        assert "curl" in result.stdout
+        assert "htop" in result.stdout.lower()
 
     def test_package_manager_rocky(self, server):
         """Test dnf package manager on Rocky daemons"""
         result = server.execute_command(
             "daemon-rocky-1",
-            "microdnf install -y curl",
+            "microdnf install -y htop",
             timeout=60
         )
         assert result.success
 
-        result = server.execute_command("daemon-rocky-1", "curl --version", timeout=5)
+        result = server.execute_command("daemon-rocky-1", "htop --version", timeout=5)
         assert result.success
-        assert "curl" in result.stdout
+        assert "htop" in result.stdout.lower()
 
     def test_all_distros_run_same_command(self, server):
         """Verify all distributions can run common commands"""
