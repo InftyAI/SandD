@@ -60,7 +60,7 @@ def install_htop(server, daemon_id):
         elif "fedora" in distro:
             cmd = "dnf install -y htop"
         else:
-            print(f"❌ Unknown Linux distribution")
+            print("❌ Unknown Linux distribution")
             return False
 
     # Execute installation
