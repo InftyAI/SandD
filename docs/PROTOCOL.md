@@ -424,7 +424,7 @@ All messages are JSON with a `type` field indicating the message type:
    - Agent detects closed connection
    - Registry removes daemon
    - All pending commands fail
-   - Terminate
+   - Sessions terminate
 ```
 
 ## Heartbeat & Connection Monitoring

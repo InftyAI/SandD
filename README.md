@@ -35,7 +35,7 @@ Rust-powered WebSocket server with Python API for secure command execution in is
 │  │  from sandd import Server          │  │
 │  │                                    │  │
 │  │  server = Server("0.0.0.0", 8765)  │  │
-│  │  result = server.exec(  │  │
+│  │  result = server.exec(             │  │
 │  │      "daemon-1", "ls -la"          │  │
 │  │  )                                 │  │
 │  └────────────────────────────────────┘  │

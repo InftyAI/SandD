@@ -330,7 +330,7 @@ class Server:
         Args:
             session: Session to make interactive
         """
-        print("Entering interactive session session. Press Ctrl+D to exit.")
+        print("Entering interactive session. Press Ctrl+D to exit.")
         print("-" * 60)
 
         # Set terminal to raw mode on Unix systems

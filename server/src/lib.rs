@@ -137,10 +137,10 @@ impl Server {
             term,
         };
 
+        conn.register_session(session_id.clone(), tx);
+
         conn.send_message(msg)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to start session: {}", e)))?;
-
-        conn.register_session(session_id.clone(), tx);
 
         Ok(Session {
             session_id,
