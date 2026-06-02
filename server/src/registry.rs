@@ -34,7 +34,7 @@ pub struct DaemonConnection {
     // ═══════════════════════════════════════════════════════════════════
     // Incoming: Daemon → Python (Streaming Pattern)
     // ═══════════════════════════════════════════════════════════════════
-    /// Maps request_id → output channel for interactive sessions
+    /// Maps session_id → output channel for interactive sessions
     /// Session output arrives incrementally from daemon, gets forwarded to Python.
     /// Pattern: Streaming (continuous flow of data chunks)
     sessions: Arc<DashMap<String, mpsc::UnboundedSender<Vec<u8>>>>,
