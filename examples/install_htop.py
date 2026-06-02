@@ -16,7 +16,7 @@ import time
 
 def check_htop_available(server, daemon_id):
     """Check if htop is available on a daemon"""
-    result = server.execute_command(daemon_id, "which htop", timeout=5)
+    result = server.exec(daemon_id, "which htop", timeout=5)
     return result.success
 
 
@@ -25,7 +25,7 @@ def install_htop(server, daemon_id):
     print(f"Installing htop on {daemon_id}...")
 
     # Detect platform (macOS vs Linux)
-    platform_result = server.execute_command(daemon_id, "uname -s", timeout=5)
+    platform_result = server.exec(daemon_id, "uname -s", timeout=5)
     if not platform_result.success:
         print("❌ Could not detect platform")
         return False
@@ -38,7 +38,7 @@ def install_htop(server, daemon_id):
         cmd = "brew install htop"
     else:
         # Linux - detect distribution
-        distro_result = server.execute_command(
+        distro_result = server.exec(
             daemon_id,
             "cat /etc/os-release 2>/dev/null || echo 'unknown'",
             timeout=5
@@ -64,7 +64,7 @@ def install_htop(server, daemon_id):
             return False
 
     # Execute installation
-    result = server.execute_command(daemon_id, cmd, timeout=120)
+    result = server.exec(daemon_id, cmd, timeout=120)
 
     if result.success:
         print("✓ htop installed successfully")
@@ -84,6 +84,7 @@ def main():
 
     # Wait for at least one daemon
     print("Waiting for daemons to connect...")
+    print("(Start a daemon with: ./target/release/sandd --server-url ws://127.0.0.1:8765/ws)")
     daemons = server.list_daemons()
     while not daemons:
         time.sleep(1)
@@ -98,7 +99,7 @@ def main():
         print("✓ htop is already installed")
 
         # Get htop version
-        result = server.execute_command(daemon_id, "htop --version", timeout=5)
+        result = server.exec(daemon_id, "htop --version", timeout=5)
         if result.success:
             # htop version is usually first line
             version_line = result.stdout.split('\n')[0]
@@ -110,7 +111,7 @@ def main():
         # Install htop
         if install_htop(server, daemon_id):
             # Verify installation
-            result = server.execute_command(daemon_id, "htop --version", timeout=5)
+            result = server.exec(daemon_id, "htop --version", timeout=5)
             if result.success:
                 version_line = result.stdout.split('\n')[0]
                 print(f"  {version_line}")
@@ -133,7 +134,7 @@ def main():
     ]
 
     for cmd, description in test_commands:
-        result = server.execute_command(daemon_id, cmd, timeout=10)
+        result = server.exec(daemon_id, cmd, timeout=10)
         if result.success:
             print(f"✓ {description}")
             # Show first few lines of output
@@ -150,7 +151,7 @@ def main():
     print("Example complete!")
     print()
     print("Note: htop is an interactive tool. To use it interactively,")
-    print("      use server.start_shell() instead of execute_command().")
+    print("      use server.session() instead of exec().")
 
 
 if __name__ == "__main__":

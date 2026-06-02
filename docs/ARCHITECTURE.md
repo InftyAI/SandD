@@ -29,7 +29,7 @@ At 200+ connections, Python asyncio:
 ### Why WebSocket?
 
 - Persistent bidirectional connection
-- Efficient for streaming (shell output)
+- Efficient for streaming (session output)
 - Well-supported libraries
 - Can multiplex multiple sessions over one connection
 

@@ -25,7 +25,7 @@ pub struct DaemonConnection {
     // ═══════════════════════════════════════════════════════════════════
     // Incoming: Daemon → Python (Request/Response Pattern)
     // ═══════════════════════════════════════════════════════════════════
-    /// Maps command_id → response channel for execute_command() calls
+    /// Maps request_id → response channel for execute_command() calls
     /// When Python sends a command, it registers a oneshot channel here and waits.
     /// When daemon responds with CommandOutput, we look up and send result back.
     /// Pattern: Request/Response (each command gets exactly one response)
@@ -34,15 +34,15 @@ pub struct DaemonConnection {
     // ═══════════════════════════════════════════════════════════════════
     // Incoming: Daemon → Python (Streaming Pattern)
     // ═══════════════════════════════════════════════════════════════════
-    /// Maps session_id → output channel for interactive shell sessions
-    /// Shell output arrives incrementally from daemon, gets forwarded to Python.
+    /// Maps request_id → output channel for interactive sessions
+    /// Session output arrives incrementally from daemon, gets forwarded to Python.
     /// Pattern: Streaming (continuous flow of data chunks)
-    shell_sessions: Arc<DashMap<String, mpsc::UnboundedSender<Vec<u8>>>>,
+    sessions: Arc<DashMap<String, mpsc::UnboundedSender<Vec<u8>>>>,
 
     // ═══════════════════════════════════════════════════════════════════
     // Incoming: Daemon → Python (Chunked Buffering Pattern)
     // ═══════════════════════════════════════════════════════════════════
-    /// Maps transfer_id → accumulated file chunks for download operations
+    /// Maps request_id → accumulated file chunks for download operations
     /// File arrives in chunks from daemon, we buffer them until complete.
     /// Pattern: Chunked (collect pieces, return whole on completion)
     file_transfers: Arc<DashMap<String, FileTransfer>>,
@@ -82,7 +82,7 @@ impl DaemonConnection {
             connected_at: now,
             command_tx,
             pending_commands: Arc::new(DashMap::new()),
-            shell_sessions: Arc::new(DashMap::new()),
+            sessions: Arc::new(DashMap::new()),
             file_transfers: Arc::new(DashMap::new()),
         }
     }
@@ -121,18 +121,18 @@ impl DaemonConnection {
         }
     }
 
-    pub fn register_shell_session(&self, session_id: String, tx: mpsc::UnboundedSender<Vec<u8>>) {
-        self.shell_sessions.insert(session_id, tx);
+    pub fn register_session(&self, session_id: String, tx: mpsc::UnboundedSender<Vec<u8>>) {
+        self.sessions.insert(session_id, tx);
     }
 
-    pub fn send_shell_output(&self, session_id: &str, data: Vec<u8>) {
-        if let Some(tx) = self.shell_sessions.get(session_id) {
+    pub fn send_session_output(&self, session_id: &str, data: Vec<u8>) {
+        if let Some(tx) = self.sessions.get(session_id) {
             let _ = tx.send(data);
         }
     }
 
-    pub fn close_shell_session(&self, session_id: &str) {
-        self.shell_sessions.remove(session_id);
+    pub fn close_session(&self, session_id: &str) {
+        self.sessions.remove(session_id);
     }
 
     pub fn start_file_transfer(&self, transfer_id: String, path: String, total_size: u64) {

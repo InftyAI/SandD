@@ -1,10 +1,6 @@
-// Shell functionality is disabled in MVP, allow dead code warnings
-#![allow(dead_code)]
-#![allow(unused_imports)]
-
 mod executor;
 mod protocol;
-mod shell;
+mod session;
 
 use anyhow::Result;
 use clap::Parser;
@@ -20,7 +16,9 @@ use tracing::{debug, error, info, warn};
 
 #[derive(Parser, Debug)]
 #[command(name = "sandd")]
-#[command(about = "SandD - Sandbox Daemon for remote command execution")]
+#[command(
+    about = "SandD - A lightweight sandbox daemon that provides secure, isolated execution environments for agents."
+)]
 struct Args {
     /// Server URL (e.g., ws://localhost:8765/ws)
     #[arg(short, long, env = "SERVER_URL")]
@@ -77,7 +75,14 @@ async fn main() -> Result<()> {
 
     // Main connection loop with reconnection
     loop {
-        match connect_and_serve(&args.server_url, &daemon_id, args.heartbeat_interval, labels.clone()).await {
+        match connect_and_serve(
+            &args.server_url,
+            &daemon_id,
+            args.heartbeat_interval,
+            labels.clone(),
+        )
+        .await
+        {
             Ok(_) => info!("Connection closed gracefully"),
             Err(e) => error!("Connection error: {}", e),
         }
@@ -161,6 +166,7 @@ async fn connect_and_serve(
 
     // Initialize executors
     let executor = Arc::new(CommandExecutor::new());
+    let session_manager = Arc::new(tokio::sync::Mutex::new(session::SessionManager::new()));
 
     // Spawn heartbeat task
     let ws_tx_clone = Arc::new(tokio::sync::Mutex::new(ws_tx));
@@ -203,7 +209,7 @@ async fn connect_and_serve(
         };
 
         // Handle message inline
-        if let Err(e) = handle_message(message, ws_tx_clone.clone(), executor.clone()).await {
+        if let Err(e) = handle_message(message, ws_tx_clone.clone(), executor.clone(), session_manager.clone()).await {
             error!("Error handling message: {}", e);
         }
     }
@@ -218,9 +224,10 @@ async fn handle_message<T>(
     message: Message,
     ws_tx: Arc<tokio::sync::Mutex<T>>,
     executor: Arc<CommandExecutor>,
+    session_manager: Arc<tokio::sync::Mutex<session::SessionManager>>,
 ) -> Result<()>
 where
-    T: SinkExt<WsMessage> + Unpin,
+    T: SinkExt<WsMessage> + Unpin + Send + 'static,
     T::Error: std::error::Error + Send + Sync + 'static,
 {
     match message {
@@ -286,22 +293,30 @@ where
             }
         }
 
-        Message::StartShell {
-            request_id,
-            rows: _,
-            cols: _,
-            term: _,
+        Message::StartSession {
+            session_id,
+            rows,
+            cols,
+            term,
         } => {
-            debug!(
-                "Starting shell session: {} (not implemented in MVP)",
-                request_id
-            );
+            debug!("Starting session: {}", session_id);
 
-            // TODO: Shell functionality disabled for MVP due to PtySystem Sync issues
-            let response = Message::ShellStarted {
-                request_id,
-                success: false,
-                error: Some("Shell functionality not implemented in MVP".to_string()),
+            let mut manager = session_manager.lock().await;
+            let result = manager
+                .start_session(session_id.clone(), rows, cols, &term, ws_tx.clone())
+                .await;
+
+            let response = match result {
+                Ok(()) => Message::SessionStarted {
+                    session_id,
+                    success: true,
+                    error: None,
+                },
+                Err(e) => Message::SessionStarted {
+                    session_id,
+                    success: false,
+                    error: Some(e.to_string()),
+                },
             };
 
             let json = serde_json::to_string(&response)?;
@@ -311,21 +326,33 @@ where
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
         }
 
-        Message::ShellInput {
-            request_id: _,
-            data: _,
+        Message::SessionInput {
+            session_id,
+            data,
         } => {
-            debug!("Shell input (not implemented)");
-            // TODO: Shell functionality disabled for MVP
+            debug!("Session input: {} bytes for session {}", data.len(), session_id);
+            let manager = session_manager.lock().await;
+            if let Err(e) = manager.send_input(&session_id, &data).await {
+                error!("Failed to send input to session {}: {}", session_id, e);
+            }
         }
 
-        Message::ShellResize {
-            request_id: _,
-            rows: _,
-            cols: _,
+        Message::SessionResize {
+            session_id,
+            rows,
+            cols,
         } => {
-            debug!("Shell resize (not implemented)");
-            // TODO: Shell functionality disabled for MVP
+            debug!("Session resize: {} to {}x{}", session_id, rows, cols);
+            let manager = session_manager.lock().await;
+            if let Err(e) = manager.resize(&session_id, rows, cols).await {
+                error!("Failed to resize session {}: {}", session_id, e);
+            }
+        }
+
+        Message::SessionClose { session_id } => {
+            debug!("Closing session: {}", session_id);
+            let mut manager = session_manager.lock().await;
+            manager.close_session(&session_id);
         }
 
         Message::FileUploadStart {

@@ -56,8 +56,8 @@ All messages are JSON with a `type` field indicating the message type:
 
 ```json
 {
-  "type": "execute_command",
-  "command_id": "uuid-here",
+  "type": "exec",
+  "request_id": "uuid-here",
   "command": "ls -la",
   "timeout_secs": 300,
   "env": {},
@@ -130,8 +130,8 @@ All messages are JSON with a `type` field indicating the message type:
 
 ```json
 {
-  "type": "execute_command",
-  "command_id": "550e8400-e29b-41d4-a716-446655440000",
+  "type": "exec",
+  "request_id": "550e8400-e29b-41d4-a716-446655440000",
   "command": "python script.py",
   "timeout_secs": 300,
   "env": {
@@ -142,7 +142,7 @@ All messages are JSON with a `type` field indicating the message type:
 ```
 
 **Fields**:
-- `command_id`: Unique identifier for tracking this command
+- `request_id`: Unique identifier for tracking this request
 - `command`: Shell command to execute
 - `timeout_secs`: Maximum execution time (default: 300)
 - `env`: Environment variables (optional)
@@ -155,7 +155,7 @@ All messages are JSON with a `type` field indicating the message type:
 ```json
 {
   "type": "command_output",
-  "command_id": "550e8400-e29b-41d4-a716-446655440000",
+  "request_id": "550e8400-e29b-41d4-a716-446655440000",
   "stdout": "output text...",
   "stderr": "",
   "exit_code": 0,
@@ -170,20 +170,20 @@ All messages are JSON with a `type` field indicating the message type:
 ```json
 {
   "type": "command_error",
-  "command_id": "550e8400-e29b-41d4-a716-446655440000",
+  "request_id": "550e8400-e29b-41d4-a716-446655440000",
   "error": "command not found"
 }
 ```
 
-### Interactive Shell (PTY)
+### Interactive Session (PTY)
 
-#### StartShell
+#### StartSession
 **Direction**: Agent → Daemon
-**Purpose**: Start an interactive shell session
+**Purpose**: Start an interactive session
 
 ```json
 {
-  "type": "start_shell",
+  "type": "start_session",
   "session_id": "550e8400-e29b-41d4-a716-446655440001",
   "rows": 24,
   "cols": 80,
@@ -191,26 +191,26 @@ All messages are JSON with a `type` field indicating the message type:
 }
 ```
 
-#### ShellStarted
+#### SessionStarted
 **Direction**: Daemon → Agent
-**Purpose**: Acknowledge shell started
+**Purpose**: Acknowledge session started
 
 ```json
 {
-  "type": "shell_started",
+  "type": "session_started",
   "session_id": "550e8400-e29b-41d4-a716-446655440001",
   "success": true,
   "error": null
 }
 ```
 
-#### ShellInput
+#### SessionInput
 **Direction**: Agent → Daemon
-**Purpose**: Send user input to shell
+**Purpose**: Send user input to session
 
 ```json
 {
-  "type": "shell_input",
+  "type": "session_input",
   "session_id": "550e8400-e29b-41d4-a716-446655440001",
   "data": "bHMgLWxhCg=="
 }
@@ -218,13 +218,13 @@ All messages are JSON with a `type` field indicating the message type:
 
 **Note**: `data` is base64-encoded bytes
 
-#### ShellOutput
+#### SessionOutput
 **Direction**: Daemon → Agent
-**Purpose**: Stream shell output back to agent
+**Purpose**: Stream session output back to agent
 
 ```json
 {
-  "type": "shell_output",
+  "type": "session_output",
   "session_id": "550e8400-e29b-41d4-a716-446655440001",
   "data": "ZmlsZTEgIGZpbGUyICBmaWxlMwo="
 }
@@ -232,26 +232,37 @@ All messages are JSON with a `type` field indicating the message type:
 
 **Note**: `data` is base64-encoded bytes
 
-#### ShellResize
+#### SessionResize
 **Direction**: Agent → Daemon
 **Purpose**: Resize terminal window
 
 ```json
 {
-  "type": "shell_resize",
+  "type": "session_resize",
   "session_id": "550e8400-e29b-41d4-a716-446655440001",
   "rows": 50,
   "cols": 120
 }
 ```
 
-#### ShellExit
-**Direction**: Daemon → Agent
-**Purpose**: Shell session terminated
+#### SessionClose
+**Direction**: Agent → Daemon
+**Purpose**: Close session
 
 ```json
 {
-  "type": "shell_exit",
+  "type": "session_close",
+  "session_id": "550e8400-e29b-41d4-a716-446655440001"
+}
+```
+
+#### SessionExit
+**Direction**: Daemon → Agent
+**Purpose**: Session terminated
+
+```json
+{
+  "type": "session_exit",
   "session_id": "550e8400-e29b-41d4-a716-446655440001",
   "exit_code": 0
 }
@@ -367,25 +378,25 @@ All messages are JSON with a `type` field indicating the message type:
 
 ### Request/Response (Command Execution)
 
-1. Agent generates unique `command_id`
-2. Agent registers oneshot channel for this command
+1. Agent generates unique `request_id`
+2. Agent registers oneshot channel for this request
 3. Agent sends `ExecuteCommand` message
 4. Daemon executes and sends back `CommandOutput`
 5. Agent resolves channel, Python receives result
 
 **Concurrency**: Multiple commands can execute in parallel
 
-### Streaming (Shell Sessions)
+### Streaming (Interactive Sessions)
 
 1. Agent generates unique `session_id`
 2. Agent registers mpsc channel for this session
-3. Agent sends `StartShell` message
+3. Agent sends `StartSession` message
 4. Daemon starts PTY and begins streaming output
-5. Agent sends `ShellInput` as user types
-6. Daemon sends `ShellOutput` continuously
-7. Session ends with `ShellExit`
+5. Agent sends `SessionInput` as user types
+6. Daemon sends `SessionOutput` continuously
+7. Session ends with `SessionExit`
 
-**Concurrency**: Multiple shell sessions per daemon supported
+**Concurrency**: Multiple sessions per daemon supported
 
 ### Chunked Transfer (File Download)
 
@@ -413,7 +424,7 @@ All messages are JSON with a `type` field indicating the message type:
    - Agent detects closed connection
    - Registry removes daemon
    - All pending commands fail
-   - Shell sessions terminate
+   - Terminate
 ```
 
 ## Heartbeat & Connection Monitoring
@@ -434,4 +445,4 @@ All messages are JSON with a `type` field indicating the message type:
 
 See `server/src/protocol.rs` for the complete Rust implementation using serde for JSON serialization.
 
-Binary data (shell I/O, file chunks) is base64-encoded for JSON compatibility.
+Binary data (session I/O, file chunks) is base64-encoded for JSON compatibility.

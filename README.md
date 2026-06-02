@@ -2,7 +2,7 @@
 
 # SandD
 
-**A Lightweight Sandbox Daemon for Secure Agent Execution in Isolated Environments.**
+**A Lightweight Sandbox Daemon that Provides Secure, Isolated Execution Environments for Agents.**
 
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
@@ -18,8 +18,8 @@ Rust-powered WebSocket server with Python API for secure command execution in is
 
 ## Features
 
-- ✅ **Command Execution**: Execute shell commands remotely with timeout support
-- ✅ **Interactive Shell (PTY)**: Full terminal sessions for debugging and manual work
+- ✅ **Command Execution**: Execute commands remotely with timeout support
+- ✅ **Interactive Sessions (PTY)**: Full terminal sessions for debugging and manual work
 - ✅ **File Transfer**: Upload/download files between agent and daemons
 - ✅ **High Performance**: Rust-powered WebSocket server handles 200+ concurrent connections
 - ✅ **Auto Reconnection**: Daemons automatically reconnect if connection drops
@@ -29,25 +29,25 @@ Rust-powered WebSocket server with Python API for secure command execution in is
 ## Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│  Python Agent Application               │
-│  ┌────────────────────────────────────┐ │
-│  │  from sandd import Server          │ │
-│  │                                    │ │
-│  │  server = Server("0.0.0.0", 8765)  │ │
-│  │  result = server.execute_command(  │ │
-│  │      "daemon-1", "ls -la"          │ │
-│  │  )                                 │ │
-│  └────────────────────────────────────┘ │
-│          ▲                              │
-│          │ Python bindings (PyO3)       │
-│          ▼                              │
-│  ┌────────────────────────────────────┐ │
-│  │  Rust WebSocket Server (tokio)     │ │
-│  │  • Command routing                 │ │
-│  │  • Session management              │ │
-│  └────────────────────────────────────┘ │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────────┐
+│  Python Agent Application                │
+│  ┌────────────────────────────────────┐  │
+│  │  from sandd import Server          │  │
+│  │                                    │  │
+│  │  server = Server("0.0.0.0", 8765)  │  │
+│  │  result = server.exec(  │  │
+│  │      "daemon-1", "ls -la"          │  │
+│  │  )                                 │  │
+│  └────────────────────────────────────┘  │
+│          ▲                               │
+│          │ Python bindings (PyO3)        │
+│          ▼                               │
+│  ┌────────────────────────────────────┐  │
+│  │  Rust WebSocket Server (tokio)     │  │
+│  │  • Command routing                 │  │
+│  │  • Session management              │  │
+│  └────────────────────────────────────┘  │
+└──────────────────────────────────────────┘
                      ▲
                      │ WebSocket (WSS)
                      │ (Daemon initiates connection)
@@ -90,7 +90,7 @@ print(f"Server listening on {server.address}")
 server.wait_for_daemon("worker-1", timeout=30)
 
 # Execute command
-result = server.execute_command("worker-1", "hostname")
+result = server.exec("worker-1", "hostname")
 print(f"Output: {result.stdout}")
 ```
 

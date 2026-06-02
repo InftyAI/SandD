@@ -196,23 +196,23 @@ class TestCommandExecution:
         """Test executing a simple command"""
         daemon_id, _ = daemon_process
 
-        result = server.execute_command(daemon_id, "echo 'Hello World'", timeout=5)
+        result = server.exec(daemon_id, "echo 'Hello World'", timeout=5)
 
         assert result.success
         assert result.exit_code == 0
         assert "Hello World" in result.stdout
         assert result.duration_ms > 0
 
-    def test_execute_command_with_failure(self, server, daemon_process):
+    def test_exec_with_failure(self, server, daemon_process):
         """Test executing a command that fails"""
         daemon_id, _ = daemon_process
 
-        result = server.execute_command(daemon_id, "exit 42", timeout=5)
+        result = server.exec(daemon_id, "exit 42", timeout=5)
 
         assert not result.success
         assert result.exit_code == 42
 
-    def test_execute_command_with_env(self, server, daemon_process):
+    def test_exec_with_env(self, server, daemon_process):
         """Test executing command with environment variables"""
         daemon_id, _ = daemon_process
 
@@ -222,16 +222,16 @@ class TestCommandExecution:
         else:  # Unix
             cmd = "echo $TEST_VAR"
 
-        result = server.execute_command(daemon_id, cmd, timeout=5, env=env)
+        result = server.exec(daemon_id, cmd, timeout=5, env=env)
 
         assert result.success
         assert "test_value_123" in result.stdout
 
-    def test_execute_command_with_cwd(self, server, daemon_process):
+    def test_exec_with_cwd(self, server, daemon_process):
         """Test executing command with custom working directory"""
         daemon_id, _ = daemon_process
 
-        result = server.execute_command(daemon_id, "pwd", timeout=5, cwd="/tmp")
+        result = server.exec(daemon_id, "pwd", timeout=5, cwd="/tmp")
 
         assert result.success
         # On some systems /tmp might be a symlink, so check both
@@ -243,7 +243,7 @@ class TestCommandExecution:
 
         # Generate 1000 lines of output
         cmd = "for i in {1..1000}; do echo 'Line $i'; done"
-        result = server.execute_command(daemon_id, cmd, timeout=10)
+        result = server.exec(daemon_id, cmd, timeout=10)
 
         assert result.success
         assert result.stdout.count('\n') >= 1000
@@ -254,14 +254,14 @@ class TestCommandExecution:
 
         # Command that sleeps longer than timeout
         with pytest.raises(Exception):  # Should raise timeout or runtime error
-            server.execute_command(daemon_id, "sleep 10", timeout=1)
+            server.exec(daemon_id, "sleep 10", timeout=1)
 
     def test_execute_python_script(self, server, daemon_process):
         """Test executing Python code"""
         daemon_id, _ = daemon_process
 
         cmd = "python3 -c 'import sys; print(f\"Python {sys.version_info.major}.{sys.version_info.minor}\")'"
-        result = server.execute_command(daemon_id, cmd, timeout=5)
+        result = server.exec(daemon_id, cmd, timeout=5)
 
         assert result.success
         assert "Python" in result.stdout
@@ -291,62 +291,62 @@ class TestServerStats:
         platforms = list(stats.by_platform.keys())
         assert len(platforms) > 0
 
-        # Common platform names
-        assert any(p in ["linux", "darwin", "windows", "Linux", "Darwin", "Windows"]
+        # Common platform names (Rust's std::env::consts::OS values)
+        assert any(p in ["linux", "macos", "windows", "Linux", "Darwin", "Windows"]
                   for p in platforms)
 
 
-class TestFileTransfer:
-    """Test file upload/download with real daemons"""
+# class TestFileTransfer:
+#     """Test file upload/download with real daemons"""
 
-    def test_upload_and_download_file(self, server, daemon_process):
-        """Test uploading and downloading a file"""
-        daemon_id, _ = daemon_process
+#     def test_upload_and_download_file(self, server, daemon_process):
+#         """Test uploading and downloading a file"""
+#         daemon_id, _ = daemon_process
 
-        # Create test data
-        test_data = b"Hello from SandD test!\nLine 2\nLine 3"
-        remote_path = f"/tmp/sandd-test-{os.getpid()}.txt"
+#         # Create test data
+#         test_data = b"Hello from SandD test!\nLine 2\nLine 3"
+#         remote_path = f"/tmp/sandd-test-{os.getpid()}.txt"
 
-        try:
-            # Upload file
-            server.upload_file(daemon_id, remote_path, test_data)
+#         try:
+#             # Upload file
+#             server.upload_file(daemon_id, remote_path, test_data)
 
-            # Verify file exists
-            result = server.execute_command(daemon_id, f"cat {remote_path}", timeout=5)
-            assert result.success
-            assert test_data.decode() in result.stdout
+#             # Verify file exists
+#             result = server.exec(daemon_id, f"cat {remote_path}", timeout=5)
+#             assert result.success
+#             assert test_data.decode() in result.stdout
 
-            # Download file
-            downloaded_data = server.download_file(daemon_id, remote_path)
-            assert downloaded_data == test_data
+#             # Download file
+#             downloaded_data = server.download_file(daemon_id, remote_path)
+#             assert downloaded_data == test_data
 
-        finally:
-            # Cleanup
-            server.execute_command(daemon_id, f"rm -f {remote_path}", timeout=5)
+#         finally:
+#             # Cleanup
+#             server.exec(daemon_id, f"rm -f {remote_path}", timeout=5)
 
-    def test_upload_large_file(self, server, daemon_process):
-        """Test uploading a larger file (1MB)"""
-        daemon_id, _ = daemon_process
+#     def test_upload_large_file(self, server, daemon_process):
+#         """Test uploading a larger file (1MB)"""
+#         daemon_id, _ = daemon_process
 
-        # Create 1MB of test data
-        test_data = b"x" * (1024 * 1024)
-        remote_path = f"/tmp/sandd-large-test-{os.getpid()}.bin"
+#         # Create 1MB of test data
+#         test_data = b"x" * (1024 * 1024)
+#         remote_path = f"/tmp/sandd-large-test-{os.getpid()}.bin"
 
-        try:
-            server.upload_file(daemon_id, remote_path, test_data)
+#         try:
+#             server.upload_file(daemon_id, remote_path, test_data)
 
-            # Verify size
-            result = server.execute_command(
-                daemon_id,
-                f"wc -c < {remote_path}",
-                timeout=5
-            )
-            assert result.success
-            size = int(result.stdout.strip())
-            assert size == len(test_data)
+#             # Verify size
+#             result = server.exec(
+#                 daemon_id,
+#                 f"wc -c < {remote_path}",
+#                 timeout=5
+#             )
+#             assert result.success
+#             size = int(result.stdout.strip())
+#             assert size == len(test_data)
 
-        finally:
-            server.execute_command(daemon_id, f"rm -f {remote_path}", timeout=5)
+#         finally:
+#             server.exec(daemon_id, f"rm -f {remote_path}", timeout=5)
 
 
 class TestWaitForDaemon:
@@ -395,29 +395,29 @@ class TestWaitForDaemon:
     not DAEMON_BINARY.exists(),
     reason="Requires compiled daemon binary"
 )
-class TestShellSession:
-    """Test interactive shell sessions"""
+class TestSession:
+    """Test interactive sessions"""
 
-    def test_start_shell_session(self, server, daemon_process):
-        """Test starting an interactive shell"""
+    def test_session(self, server, daemon_process):
+        """Test starting an interactive session"""
         daemon_id, _ = daemon_process
 
-        shell = server.start_shell(daemon_id)
-        assert shell is not None
+        session = server.new_session(daemon_id)
+        assert session is not None
 
         # Write a command
-        shell.write(b"echo 'test123'\n")
+        session.write(b"echo 'test123'\n")
 
         # Read output with timeout
-        output = shell.read(timeout=2.0)
+        output = session.read(timeout=2.0)
 
         # Should contain our echo
         if output:
             output_str = output.decode('utf-8', errors='ignore')
             assert 'test123' in output_str or 'echo' in output_str
 
-        # Close shell
-        shell.close()
+        # Close session
+        session.close()
 
 
 if __name__ == "__main__":

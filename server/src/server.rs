@@ -229,25 +229,25 @@ async fn handle_daemon_message(
             }
         }
 
-        Message::ShellOutput { request_id, data } => {
+        Message::SessionOutput { session_id, data } => {
             if let Some(ref id) = daemon_id {
                 if let Some(conn) = registry.get(id) {
-                    conn.send_shell_output(&request_id, data);
+                    conn.send_session_output(&session_id, data);
                 }
             }
         }
 
-        Message::ShellExit {
-            request_id,
+        Message::SessionExit {
+            session_id,
             exit_code,
         } => {
             if let Some(ref id) = daemon_id {
                 if let Some(conn) = registry.get(id) {
                     debug!(
-                        "Shell session {} exited with code {} on daemon {}",
-                        request_id, exit_code, id
+                        "Session {} exited with code {} on daemon {}",
+                        session_id, exit_code, id
                     );
-                    conn.close_shell_session(&request_id);
+                    conn.close_session(&session_id);
                 }
             }
         }

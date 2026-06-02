@@ -61,14 +61,11 @@ test-e2e: $(PYTEST) dev
 	@echo "Cleaning up containers..."
 	docker compose -f docker-compose.e2e.yml down
 
-docker-build:
-	docker compose -f docker-compose.e2e.yml build
+docker-up:
+	docker compose -f docker-compose.e2e.yml up -d
 
 docker-down:
 	docker compose -f docker-compose.e2e.yml down
-
-test-all: test test-e2e
-	@echo "All tests completed successfully"
 
 .PHONY: lint
 lint: $(RUFF)
