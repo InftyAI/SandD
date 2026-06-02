@@ -25,7 +25,7 @@ pub struct DaemonConnection {
     // ═══════════════════════════════════════════════════════════════════
     // Incoming: Daemon → Python (Request/Response Pattern)
     // ═══════════════════════════════════════════════════════════════════
-    /// Maps request_id → response channel for execute_command() calls
+    /// Maps request_id → response channel for exec() calls
     /// When Python sends a command, it registers a oneshot channel here and waits.
     /// When daemon responds with CommandOutput, we look up and send result back.
     /// Pattern: Request/Response (each command gets exactly one response)
