@@ -129,8 +129,6 @@ impl Server {
         let request_id = Uuid::new_v4().to_string();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-        conn.register_shell_session(request_id.clone(), tx);
-
         let msg = Message::StartShell {
             request_id: request_id.clone(),
             rows,
@@ -140,6 +138,8 @@ impl Server {
 
         conn.send_message(msg)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to start shell: {}", e)))?;
+
+        conn.register_shell_session(request_id.clone(), tx);
 
         Ok(ShellSession {
             session_id: request_id,
