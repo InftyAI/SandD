@@ -102,15 +102,15 @@ class TestServerStats:
 class TestErrorHandling:
     """Test error handling"""
 
-    def test_execute_command_invalid_daemon(self):
+    def test_exec_invalid_daemon(self):
         server = Server()
         with pytest.raises(ValueError, match="not found"):
-            server.execute_command("invalid", "echo test")
+            server.exec("invalid", "echo test")
 
-    def test_start_shell_invalid_daemon(self):
+    def test_session_invalid_daemon(self):
         server = Server()
         with pytest.raises(ValueError, match="not found"):
-            server.start_shell("invalid")
+            server.new_session("invalid")
 
     def test_upload_file_invalid_daemon(self):
         server = Server()

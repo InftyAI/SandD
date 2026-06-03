@@ -39,36 +39,39 @@ pub enum Message {
         error: String,
     },
 
-    // Interactive shell (PTY mode)
-    StartShell {
-        request_id: String,
+    // Interactive session (PTY mode)
+    NewSession {
+        session_id: String,
         rows: u16,
         cols: u16,
         #[serde(default = "default_term")]
         term: String,
     },
-    ShellStarted {
-        request_id: String,
+    SessionStarted {
+        session_id: String,
         success: bool,
         error: Option<String>,
     },
-    ShellInput {
-        request_id: String,
+    SessionInput {
+        session_id: String,
         #[serde(with = "base64_bytes")]
         data: Vec<u8>,
     },
-    ShellOutput {
-        request_id: String,
+    SessionOutput {
+        session_id: String,
         #[serde(with = "base64_bytes")]
         data: Vec<u8>,
     },
-    ShellResize {
-        request_id: String,
+    SessionResize {
+        session_id: String,
         rows: u16,
         cols: u16,
     },
-    ShellExit {
-        request_id: String,
+    SessionClose {
+        session_id: String,
+    },
+    SessionExit {
+        session_id: String,
         exit_code: i32,
     },
 
@@ -198,7 +201,10 @@ mod tests {
         let parsed: Message = serde_json::from_str(&json).unwrap();
 
         match parsed {
-            Message::Register { daemon_id, metadata } => {
+            Message::Register {
+                daemon_id,
+                metadata,
+            } => {
                 assert_eq!(daemon_id, "daemon-1");
                 assert_eq!(metadata.hostname, "test-host");
                 assert_eq!(metadata.platform, "linux");
@@ -252,9 +258,9 @@ mod tests {
     }
 
     #[test]
-    fn test_shell_messages() {
-        let start = Message::StartShell {
-            request_id: "shell-1".to_string(),
+    fn test_session_messages() {
+        let start = Message::NewSession {
+            session_id: "session-1".to_string(),
             rows: 24,
             cols: 80,
             term: "xterm-256color".to_string(),
@@ -264,13 +270,13 @@ mod tests {
         let parsed: Message = serde_json::from_str(&json).unwrap();
 
         match parsed {
-            Message::StartShell {
-                request_id,
+            Message::NewSession {
+                session_id,
                 rows,
                 cols,
                 term,
             } => {
-                assert_eq!(request_id, "shell-1");
+                assert_eq!(session_id, "session-1");
                 assert_eq!(rows, 24);
                 assert_eq!(cols, 80);
                 assert_eq!(term, "xterm-256color");
@@ -280,10 +286,10 @@ mod tests {
     }
 
     #[test]
-    fn test_shell_input_with_binary_data() {
+    fn test_session_input_with_binary_data() {
         let data = vec![0x01, 0x02, 0x03, 0xFF];
-        let msg = Message::ShellInput {
-            request_id: "shell-1".to_string(),
+        let msg = Message::SessionInput {
+            session_id: "session-1".to_string(),
             data: data.clone(),
         };
 
@@ -291,7 +297,9 @@ mod tests {
         let parsed: Message = serde_json::from_str(&json).unwrap();
 
         match parsed {
-            Message::ShellInput { data: parsed_data, .. } => {
+            Message::SessionInput {
+                data: parsed_data, ..
+            } => {
                 assert_eq!(parsed_data, data);
             }
             _ => panic!("Wrong message type"),
@@ -362,7 +370,10 @@ mod tests {
         let parsed: Message = serde_json::from_str(&json).unwrap();
 
         match parsed {
-            Message::Error { message, recoverable } => {
+            Message::Error {
+                message,
+                recoverable,
+            } => {
                 assert_eq!(message, "Something went wrong");
                 assert_eq!(recoverable, true);
             }
@@ -446,8 +457,8 @@ mod tests {
     fn test_base64_encoding() {
         // Test that binary data is properly encoded
         let data = vec![0, 1, 2, 255, 254, 253];
-        let msg = Message::ShellOutput {
-            request_id: "test".to_string(),
+        let msg = Message::SessionOutput {
+            session_id: "test".to_string(),
             data: data.clone(),
         };
 
@@ -458,7 +469,9 @@ mod tests {
 
         let parsed: Message = serde_json::from_str(&json).unwrap();
         match parsed {
-            Message::ShellOutput { data: parsed_data, .. } => {
+            Message::SessionOutput {
+                data: parsed_data, ..
+            } => {
                 assert_eq!(parsed_data, data);
             }
             _ => panic!("Wrong message type"),
@@ -466,9 +479,9 @@ mod tests {
     }
 
     #[test]
-    fn test_shell_resize() {
-        let msg = Message::ShellResize {
-            request_id: "shell-1".to_string(),
+    fn test_session_resize() {
+        let msg = Message::SessionResize {
+            session_id: "session-1".to_string(),
             rows: 50,
             cols: 120,
         };
@@ -477,7 +490,7 @@ mod tests {
         let parsed: Message = serde_json::from_str(&json).unwrap();
 
         match parsed {
-            Message::ShellResize { rows, cols, .. } => {
+            Message::SessionResize { rows, cols, .. } => {
                 assert_eq!(rows, 50);
                 assert_eq!(cols, 120);
             }

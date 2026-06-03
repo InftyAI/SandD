@@ -24,7 +24,7 @@ SandD/
 │   ├── src/
 │   │   ├── main.rs      # Daemon entry point
 │   │   ├── executor.rs  # Command execution
-│   │   ├── shell.rs     # Shell (not implemented)
+│   │   ├── session.rs   # Interactive sessions (PTY)
 │   │   └── protocol.rs  # Message protocol
 │   └── Cargo.toml
 │
@@ -124,7 +124,7 @@ command_tx: mpsc::UnboundedSender<Message>  // Stored in registry
 **Incoming (Daemon → Python):**
 ```rust
 pending_commands: oneshot::Sender<Result>    // Request/Response
-shell_sessions: mpsc::Sender<Vec<u8>>        // Streaming
+sessions: mpsc::Sender<Vec<u8>>              // Streaming
 file_transfers: Vec<Vec<u8>>                 // Chunked buffering
 ```
 
@@ -211,11 +211,7 @@ RUST_LOG=server=debug python3 examples/simple_test.py
 
 ### Not Implemented
 
-1. **Interactive Shell**: Infrastructure exists, daemon returns "not implemented"
-   - Reason: `PtySystem` Sync issues
-   - Fix: Refactor shell manager to avoid Sync constraints
-
-2. **File Transfer**: Protocol defined, daemon just logs
+1. **File Transfer**: Protocol defined, daemon just logs
    - Reason: Deferred for MVP
    - Fix: Implement actual file I/O in daemon
 
@@ -278,14 +274,14 @@ Include motivation and context.
 - Check daemon logs: `RUST_LOG=info ./target/release/sandd ...`
 
 **Commands timing out:**
-- Increase `timeout` parameter in `execute_command()` (in seconds)
+- Increase `timeout` parameter in `exec()` (in seconds)
 - Check daemon system resources: `top`, `free -h`
 - Verify command actually completes when run manually
 - Check daemon logs for errors
 
 **High memory usage:**
-- Monitor active shell sessions (they hold state)
-- Close unused shell sessions
+- Monitor active sessions (they hold state)
+- Close unused sessions with `session.close()`
 - Check number of connected daemons: `server.daemon_count()`
 
 ### Development Issues

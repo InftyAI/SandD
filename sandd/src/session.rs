@@ -3,24 +3,25 @@ use anyhow::{anyhow, Result};
 use futures_util::SinkExt;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize, PtySystem};
 use std::collections::HashMap;
+use std::io::Write;
 use std::sync::Arc;
-use tokio::io::AsyncReadExt;
 use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
 use tracing::{debug, error};
 
-pub struct ShellSession {
-    #[allow(dead_code)]
+pub struct SessionHandle {
     session_id: String,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    master: Arc<Mutex<Box<dyn portable_pty::MasterPty + Send>>>,
     _reader_handle: tokio::task::JoinHandle<()>,
 }
 
-pub struct ShellManager {
-    sessions: HashMap<String, ShellSession>,
+pub struct SessionManager {
+    sessions: HashMap<String, SessionHandle>,
     pty_system: Box<dyn PtySystem>,
 }
 
-impl ShellManager {
+impl SessionManager {
     pub fn new() -> Self {
         Self {
             sessions: HashMap::new(),
@@ -28,7 +29,7 @@ impl ShellManager {
         }
     }
 
-    pub async fn start_shell<T>(
+    pub async fn new_session<T>(
         &mut self,
         session_id: String,
         rows: u16,
@@ -41,7 +42,7 @@ impl ShellManager {
         T::Error: std::error::Error + Send + Sync + 'static,
     {
         debug!(
-            "Starting shell session {} ({}x{}, term={})",
+            "Starting session {} ({}x{}, term={})",
             session_id, rows, cols, term
         );
 
@@ -57,32 +58,40 @@ impl ShellManager {
             .openpty(pty_size)
             .map_err(|e| anyhow!("Failed to open PTY: {}", e))?;
 
-        // Spawn shell
-        let shell = if cfg!(target_os = "windows") {
+        // Spawn session - try bash first, fall back to $SHELL, then /bin/sh
+        let session = if cfg!(target_os = "windows") {
             "cmd.exe".to_string()
         } else {
-            std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+            // Prefer bash (most compatible), then user's shell, then POSIX sh
+            if std::path::Path::new("/bin/bash").exists() {
+                "/bin/bash".to_string()
+            } else {
+                std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+            }
         };
 
-        let mut cmd = CommandBuilder::new(&shell);
+        let mut cmd = CommandBuilder::new(&session);
         cmd.env("TERM", term);
-
-        let _child = pair
-            .slave
-            .spawn_command(cmd)
-            .map_err(|e| anyhow!("Failed to spawn shell: {}", e))?;
-
-        drop(pair.slave);
-
-        let _writer = pair
-            .master
-            .take_writer()
-            .map_err(|e| anyhow!("Failed to get PTY writer: {}", e))?;
 
         let mut reader = pair
             .master
             .try_clone_reader()
             .map_err(|e| anyhow!("Failed to get PTY reader: {}", e))?;
+
+        // Take the writer before spawning
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(|e| anyhow!("Failed to get PTY writer: {}", e))?;
+
+        let _child = pair
+            .slave
+            .spawn_command(cmd)
+            .map_err(|e| anyhow!("Failed to spawn session: {}", e))?;
+
+        // Store writer and master separately
+        let writer = Arc::new(Mutex::new(writer));
+        let master = Arc::new(Mutex::new(pair.master));
 
         // Spawn task to read from PTY and send to WebSocket
         let session_id_clone = session_id.clone();
@@ -92,11 +101,11 @@ impl ShellManager {
             loop {
                 match reader.read(&mut buffer) {
                     Ok(0) => {
-                        debug!("Shell session {} ended", session_id_clone);
+                        debug!("Session {} ended", session_id_clone);
 
                         // Send exit message
-                        let exit_msg = Message::ShellExit {
-                            request_id: session_id_clone.clone(),
+                        let exit_msg = Message::SessionExit {
+                            session_id: session_id_clone.clone(),
                             exit_code: 0,
                         };
 
@@ -110,15 +119,15 @@ impl ShellManager {
                     Ok(n) => {
                         let data = buffer[..n].to_vec();
 
-                        let output_msg = Message::ShellOutput {
-                            request_id: session_id_clone.clone(),
+                        let output_msg = Message::SessionOutput {
+                            session_id: session_id_clone.clone(),
                             data,
                         };
 
                         if let Ok(json) = serde_json::to_string(&output_msg) {
                             let mut tx = ws_tx.lock().await;
                             if tx.send(WsMessage::Text(json)).await.is_err() {
-                                error!("Failed to send shell output, connection closed");
+                                error!("Failed to send session output, connection closed");
                                 break;
                             }
                         }
@@ -133,8 +142,10 @@ impl ShellManager {
 
         self.sessions.insert(
             session_id.clone(),
-            ShellSession {
+            SessionHandle {
                 session_id,
+                writer,
+                master,
                 _reader_handle: reader_handle,
             },
         );
@@ -142,26 +153,53 @@ impl ShellManager {
         Ok(())
     }
 
-    pub async fn send_input(&self, _session_id: &str, data: &[u8]) -> Result<()> {
-        // Note: In a production implementation, you'd want interior mutability here
-        // For now, this is a simplified version
-        debug!("Sending {} bytes to shell session {}", data.len(), _session_id);
+    pub async fn send_input(&self, session_id: &str, data: &[u8]) -> Result<()> {
+        debug!("Sending {} bytes to session {}", data.len(), session_id);
+
+        let session = self
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
+
+        let mut writer = session.writer.lock().await;
+
+        writer
+            .write_all(data)
+            .map_err(|e| anyhow!("Failed to write to PTY: {}", e))?;
+
+        writer
+            .flush()
+            .map_err(|e| anyhow!("Failed to flush PTY writer: {}", e))?;
 
         Ok(())
     }
 
-    pub fn resize(&self, session_id: &str, rows: u16, cols: u16) -> Result<()> {
-        debug!("Resizing shell session {} to {}x{}", session_id, rows, cols);
+    pub async fn resize(&self, session_id: &str, rows: u16, cols: u16) -> Result<()> {
+        debug!("Resizing session {} to {}x{}", session_id, rows, cols);
 
-        // Note: portable-pty doesn't expose resize after creation easily
-        // In production, you'd store the PtyPair and call resize on it
+        let session = self
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
+
+        let master = session.master.lock().await;
+        let new_size = PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        };
+
+        master
+            .resize(new_size)
+            .map_err(|e| anyhow!("Failed to resize PTY: {}", e))?;
 
         Ok(())
     }
 
     pub fn close_session(&mut self, session_id: &str) {
         if let Some(session) = self.sessions.remove(session_id) {
-            debug!("Closing shell session {}", session.session_id);
+            debug!("Closing session {}", session.session_id);
         }
     }
 }

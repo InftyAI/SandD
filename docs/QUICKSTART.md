@@ -26,7 +26,7 @@ while True:
     if count > 0:
         print(f"\n{count} daemon(s) connected:")
         for daemon_id in server.list_daemons():
-            result = server.execute_command(daemon_id, "hostname")
+            result = server.exec(daemon_id, "hostname")
             print(f"  {daemon_id}: {result.stdout.strip()}")
     time.sleep(5)
 ```
@@ -41,7 +41,7 @@ Run: `python3 simple_agent.py`
     --daemon-id my-daemon-1
 ```
 
-Start 200+ on different machines pointing to same agent URL.
+Start many daemons on different machines pointing to same agent URL.
 
 ## 4. Test
 
@@ -51,7 +51,7 @@ from sandd import Server
 server = Server()
 server.wait_for_daemon("my-daemon-1", timeout=30)
 
-result = server.execute_command("my-daemon-1", "uname -a")
+result = server.exec("my-daemon-1", "uname -a")
 print(result.stdout)
 ```
 
@@ -69,21 +69,21 @@ from sandd import Server
 server = Server("0.0.0.0", 8765)
 
 # Simple command
-result = server.execute_command("worker-1", "ls -la /tmp")
+result = server.exec("worker-1", "ls -la /tmp")
 if result.success:
     print(result.stdout)
 else:
     print(f"Failed: {result.stderr}")
 
 # With environment variables
-result = server.execute_command(
+result = server.exec(
     "worker-1",
     "echo $MY_VAR",
     env={"MY_VAR": "custom_value"}
 )
 
 # With timeout and working directory
-result = server.execute_command(
+result = server.exec(
     "worker-1",
     "python long_script.py",
     timeout=600,
@@ -91,25 +91,28 @@ result = server.execute_command(
 )
 ```
 
-### Interactive Shell
+### Interactive Session
 
 ```python
-# Start shell session
-shell = server.start_shell("worker-1", rows=24, cols=80)
+# Start session
+session = server.new_session("worker-1", rows=24, cols=80)
 
 # Send commands
-shell.write(b"cd /tmp\n")
-shell.write(b"ls -la\n")
+session.write(b"cd /tmp\n")
+session.write(b"ls -la\n")
 
 # Read output
 import time
 time.sleep(0.5)
-output = shell.read(timeout=1.0)
+output = session.read(timeout=1.0)
 if output:
     print(output.decode())
 
 # Resize terminal
-shell.resize(rows=50, cols=120)
+session.resize(rows=50, cols=120)
+
+# Close session
+session.close()
 ```
 
 ### File Transfer

@@ -2,9 +2,9 @@
 SandD - High-performance remote command execution system
 
 This package provides a Rust-powered WebSocket server for managing
-200+ concurrent daemon connections with support for:
+high-concurrency daemon connections with support for:
 - Command execution
-- Interactive shell (PTY)
+- Interactive session (PTY)
 - File transfer
 
 Example:
@@ -12,13 +12,13 @@ Example:
     >>> server = Server(host="0.0.0.0", port=8765)
     >>>
     >>> # Execute command
-    >>> result = server.execute_command("daemon-1", "ls -la")
+    >>> result = server.exec("daemon-1", "ls -la")
     >>> print(result.stdout)
     >>>
-    >>> # Start interactive shell
-    >>> shell = server.start_shell("daemon-1")
-    >>> shell.write(b"ls\\n")
-    >>> output = shell.read(timeout=1.0)
+    >>> # Start interactive session
+    >>> session = server.new_session("daemon-1")
+    >>> session.write(b"ls\\n")
+    >>> output = session.read(timeout=1.0)
     >>>
     >>> # File transfer
     >>> server.upload_file("daemon-1", "/remote/path", data)
@@ -27,19 +27,20 @@ Example:
 
 from typing import Optional, Dict, List
 import time
+import sys
+import select
 
 try:
-    from ._core import Server as _RustServer, ShellSession, PyCommandResult, PyStats
+    from ._core import Server as _RustServer, Session, PyCommandResult, PyStats
 except ImportError as e:
     raise ImportError(
         "Failed to import Rust extension. "
         "Please build the package with: make install"
     ) from e
 
-__version__ = "0.0.0"
 __all__ = [
     "Server",
-    "ShellSession",
+    "Session",
     "CommandResult",
     "ServerStats",
 ]
@@ -130,25 +131,30 @@ class Server:
     """Sandbox execution server
 
     High-performance WebSocket server for managing remote daemon connections.
-    Built with Rust for efficient handling of 200+ concurrent connections.
+    Built with Rust for efficient handling of high-concurrency workloads.
 
     Args:
         host: Bind address (default: "0.0.0.0")
         port: Bind port (default: 8765)
+        verbose: Enable logging at INFO level (default: True)
+                Set to False to disable logs (useful for interactive sessions)
 
     Example:
         >>> server = Server("0.0.0.0", 8765)
         >>> server.wait_for_daemon("daemon-1", timeout=30)
-        >>> result = server.execute_command("daemon-1", "hostname")
+        >>> result = server.exec("daemon-1", "hostname")
         >>> print(result.stdout)
+
+        >>> # Disable logs for clean output, useful for interactive sessions
+        >>> server = Server("0.0.0.0", 8765, verbose=False)
     """
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 8765):
-        self._server = _RustServer(host, port)
+    def __init__(self, host: str = "0.0.0.0", port: int = 8765, verbose: bool = True):
+        self._server = _RustServer(host, port, verbose)
         self._host = host
         self._port = port
 
-    def execute_command(
+    def exec(
         self,
         daemon_id: str,
         command: str,
@@ -160,7 +166,7 @@ class Server:
 
         Args:
             daemon_id: Target daemon ID
-            command: Command to execute (shell string)
+            command: Command to execute (session string)
             timeout: Execution timeout in seconds (default: 300)
             env: Environment variables to set
             cwd: Working directory
@@ -174,45 +180,57 @@ class Server:
             RuntimeError: If command fails to execute
 
         Example:
-            >>> result = server.execute_command("daemon-1", "ls -la /tmp")
+            >>> result = server.exec("daemon-1", "ls -la /tmp")
             >>> if result.success:
             ...     print(result.stdout)
         """
-        result = self._server.execute_command(
+        result = self._server.exec(
             daemon_id, command, timeout, env, cwd
         )
         return CommandResult(result)
 
-    def start_shell(
+    def new_session(
         self,
         daemon_id: str,
         rows: int = 24,
         cols: int = 80,
         term: str = "xterm-256color",
-    ) -> ShellSession:
-        """Start an interactive shell session
+        interactive: bool = False,
+    ) -> Session:
+        """Create a new interactive session
 
         Args:
             daemon_id: Target daemon ID
             rows: Terminal rows (default: 24)
             cols: Terminal columns (default: 80)
             term: TERM environment variable (default: "xterm-256color")
+            interactive: If True, enters interactive mode with live terminal (default: False)
 
         Returns:
-            ShellSession for interactive I/O
+            Session for interactive I/O (or None if interactive=True, runs in foreground)
 
         Raises:
             ValueError: If daemon not found
-            RuntimeError: If shell fails to start
+            RuntimeError: If session fails to start
 
-        Example:
-            >>> shell = server.start_shell("daemon-1")
-            >>> shell.write(b"ls -la\\n")
-            >>> output = shell.read(timeout=1.0)
+        Example (Programmatic):
+            >>> session = server.new_session("daemon-1")
+            >>> session.write(b"ls -la\\n")
+            >>> output = session.read(timeout=1.0)
             >>> if output:
             ...     print(output.decode())
+
+        Example (Interactive):
+            >>> server.new_session("daemon-1", interactive=True)
+            # Enters interactive terminal session - type commands directly
         """
-        return self._server.start_shell(daemon_id, rows, cols, term)
+        session = self._server.new_session(daemon_id, rows, cols, term)
+
+        if interactive:
+            self._run_interactive(session)
+            return None
+
+        return session
 
     def upload_file(
         self,
@@ -310,6 +328,68 @@ class Server:
         """
         return ServerStats(self._server.get_stats())
 
+    def _run_interactive(self, session: Session) -> None:
+        """Run session in interactive mode with live terminal
+
+        Args:
+            session: Session to make interactive
+        """
+        print("Entering interactive session. Press Ctrl+D to exit.")
+        print("-" * 60)
+
+        # Set terminal to raw mode on Unix systems
+        if sys.platform != "win32":
+            import tty
+            import termios
+            old_settings = termios.tcgetattr(sys.stdin)
+            try:
+                tty.setraw(sys.stdin.fileno())
+                self._interactive_loop(session)
+            finally:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+        else:
+            # Windows - just run without raw mode
+            self._interactive_loop(session)
+
+        print("\n" + "-" * 60)
+        print("Interactive session ended.")
+        session.close()
+
+    def _interactive_loop(self, session: Session) -> None:
+        """Main interactive I/O loop
+
+        Args:
+            session: Session for I/O
+        """
+        try:
+            while True:
+                # Check for input from stdin
+                if sys.platform != "win32":
+                    rlist, _, _ = select.select([sys.stdin], [], [], 0.01)
+                    if rlist:
+                        data = sys.stdin.read(1)
+                        if not data or data == '\x04':  # Ctrl+D
+                            break
+                        session.write(data.encode())
+                else:
+                    # Windows - simple blocking read
+                    import msvcrt
+                    if msvcrt.kbhit():
+                        data = msvcrt.getch()
+                        if data == b'\x04':  # Ctrl+D
+                            break
+                        session.write(data)
+
+                # Read output from session
+                output = session.read(timeout=0.01)
+                if output:
+                    sys.stdout.buffer.write(output)
+                    sys.stdout.buffer.flush()
+
+        except KeyboardInterrupt:
+            # Ctrl+C - exit gracefully
+            pass
+
     def wait_for_daemon(
         self,
         daemon_id: str,
@@ -329,7 +409,7 @@ class Server:
         Example:
             >>> if server.wait_for_daemon("daemon-1", timeout=60):
             ...     print("Daemon connected!")
-            ...     result = server.execute_command("daemon-1", "hostname")
+            ...     result = server.exec("daemon-1", "hostname")
             ... else:
             ...     print("Timeout waiting for daemon")
         """

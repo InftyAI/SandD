@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "sandd"
 version = "0.1.0"
-description = "SandD - High-performance sandbox command execution system with 200+ concurrent agent support"
+description = "SandD - A lightweight sandbox daemon that provides secure, isolated execution environments for agents."
 requires-python = ">=3.8"
 license = {text = "MIT"}
 classifiers = [

@@ -77,7 +77,7 @@ class TestE2EBasicOperations:
             "daemon-rocky-1", "daemon-rocky-2"
         ]
         for daemon_id in daemon_ids:
-            result = server.execute_command(
+            result = server.exec(
                 daemon_id,
                 "echo 'Hello from container'",
                 timeout=5
@@ -94,7 +94,7 @@ class TestE2EBasicOperations:
         ]
 
         def run_cmd(daemon_id):
-            return server.execute_command(
+            return server.exec(
                 daemon_id,
                 f"echo 'Response from {daemon_id}'",
                 timeout=5
@@ -145,7 +145,7 @@ class TestE2EResilience:
     def test_daemon_restart(self, server):
         """Test daemon reconnection after container restart"""
         # Execute command before restart
-        result = server.execute_command("daemon-debian-1", "echo 'before'", timeout=5)
+        result = server.exec("daemon-debian-1", "echo 'before'", timeout=5)
         assert result.success
 
         # Restart container
@@ -161,7 +161,7 @@ class TestE2EResilience:
         assert reconnected
 
         # Execute command after restart
-        result = server.execute_command("daemon-debian-1", "echo 'after'", timeout=5)
+        result = server.exec("daemon-debian-1", "echo 'after'", timeout=5)
         assert result.success
         assert "after" in result.stdout
 
@@ -181,40 +181,40 @@ class TestE2EDistributionSpecific:
 
     def test_package_manager_debian(self, server):
         """Test apt package manager on Debian daemons"""
-        result = server.execute_command(
+        result = server.exec(
             "daemon-debian-1",
             "apt-get update && apt-get install -y curl",
             timeout=60
         )
         assert result.success
 
-        result = server.execute_command("daemon-debian-1", "curl --version", timeout=5)
+        result = server.exec("daemon-debian-1", "curl --version", timeout=5)
         assert result.success
         assert "curl" in result.stdout
 
     def test_package_manager_alpine(self, server):
         """Test apk package manager on Alpine daemons"""
-        result = server.execute_command(
+        result = server.exec(
             "daemon-alpine-1",
             "apk update && apk add curl",
             timeout=60
         )
         assert result.success
 
-        result = server.execute_command("daemon-alpine-1", "curl --version", timeout=5)
+        result = server.exec("daemon-alpine-1", "curl --version", timeout=5)
         assert result.success
         assert "curl" in result.stdout
 
     def test_package_manager_rocky(self, server):
         """Test dnf package manager on Rocky daemons"""
-        result = server.execute_command(
+        result = server.exec(
             "daemon-rocky-1",
             "microdnf install -y curl",
             timeout=60
         )
         assert result.success
 
-        result = server.execute_command("daemon-rocky-1", "curl --version", timeout=5)
+        result = server.exec("daemon-rocky-1", "curl --version", timeout=5)
         assert result.success
         assert "curl" in result.stdout
 
@@ -226,9 +226,133 @@ class TestE2EDistributionSpecific:
             "daemon-rocky-1"
         ]
         for daemon_id in daemon_ids:
-            result = server.execute_command(daemon_id, "uname -s", timeout=5)
+            result = server.exec(daemon_id, "uname -s", timeout=5)
             assert result.success
             assert result.stdout.strip() == "Linux"
+
+
+class TestE2ESessionSessions:
+    """Test interactive sessions across distributions"""
+
+    def test_session_basic_commands(self, server):
+        """Test basic session interaction"""
+        daemon_id = "daemon-debian-1"
+
+        session = server.new_session(daemon_id)
+        assert session is not None
+
+        try:
+            # Send a command
+            session.write(b"echo 'Hello from session'\n")
+            time.sleep(0.5)
+
+            # Read output
+            output = session.read(timeout=2.0)
+            assert output is not None
+            output_str = output.decode('utf-8', errors='ignore')
+            assert 'Hello from session' in output_str
+
+        finally:
+            session.close()
+
+    def test_session_across_distributions(self, server):
+        """Test session works on all distributions"""
+        daemon_ids = [
+            "daemon-debian-1",
+            "daemon-alpine-1",
+            "daemon-rocky-1"
+        ]
+
+        for daemon_id in daemon_ids:
+            session = server.new_session(daemon_id)
+            assert session is not None
+
+            try:
+                # Test command execution
+                session.write(b"whoami\n")
+                time.sleep(0.3)
+
+                output = session.read(timeout=2.0)
+                assert output is not None
+                # Should see some output (username)
+                assert len(output) > 0
+
+            finally:
+                session.close()
+
+    def test_session_multiline_commands(self, server):
+        """Test multi-line commands in session"""
+        daemon_id = "daemon-alpine-1"
+
+        session = server.new_session(daemon_id)
+        assert session is not None
+
+        try:
+            # Send multi-line command
+            session.write(b"for i in 1 2 3; do\n")
+            time.sleep(0.2)
+            session.write(b"echo $i\n")
+            time.sleep(0.2)
+            session.write(b"done\n")
+            time.sleep(0.5)
+
+            output = session.read(timeout=2.0)
+            assert output is not None
+            output_str = output.decode('utf-8', errors='ignore')
+            # Should see the numbers
+            assert '1' in output_str and '2' in output_str
+
+        finally:
+            session.close()
+
+    def test_session_environment_variables(self, server):
+        """Test setting and reading environment variables"""
+        daemon_id = "daemon-rocky-1"
+
+        session = server.new_session(daemon_id)
+        assert session is not None
+
+        try:
+            # Set environment variable
+            session.write(b"export TEST_VAR='test123'\n")
+            time.sleep(0.3)
+
+            # Read it back
+            session.write(b"echo $TEST_VAR\n")
+            time.sleep(0.3)
+
+            output = session.read(timeout=2.0)
+            assert output is not None
+            output_str = output.decode('utf-8', errors='ignore')
+            assert 'test123' in output_str
+
+        finally:
+            session.close()
+
+    def test_session_cd_persistence(self, server):
+        """Test that cd persists within a session session"""
+        daemon_id = "daemon-debian-1"
+
+        session = server.new_session(daemon_id)
+        assert session is not None
+
+        try:
+            # Change directory
+            session.write(b"cd /tmp\n")
+            time.sleep(0.3)
+
+            # Verify we're in /tmp
+            session.write(b"pwd\n")
+            time.sleep(0.3)
+
+            output = session.read(timeout=2.0)
+            assert output is not None
+            output_str = output.decode('utf-8', errors='ignore')
+            assert '/tmp' in output_str
+
+        finally:
+            session.close()
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

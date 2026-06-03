@@ -8,6 +8,7 @@ mod server;
 
 use pyo3::exceptions::{PyRuntimeError, PyTimeoutError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,15 +32,18 @@ pub struct Server {
 #[pymethods]
 impl Server {
     #[new]
-    #[pyo3(signature = (host="0.0.0.0".to_string(), port=8765))]
-    fn new(host: String, port: u16) -> PyResult<Self> {
-        // Initialize logging
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::from_default_env()
-                    .add_directive(tracing::Level::INFO.into()),
-            )
-            .try_init();
+    #[pyo3(signature = (host="0.0.0.0".to_string(), port=8765, verbose=true))]
+    fn new(host: String, port: u16, verbose: bool) -> PyResult<Self> {
+        // Initialize logging: INFO by default, unless verbose=False
+        // RUST_LOG env var can override (e.g., RUST_LOG=debug)
+        if verbose {
+            let _ = tracing_subscriber::fmt()
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::from_default_env()
+                        .add_directive(tracing::Level::INFO.into()),
+                )
+                .try_init();
+        }
 
         let runtime = Runtime::new()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to create runtime: {}", e)))?;
@@ -67,7 +71,7 @@ impl Server {
 
     /// Execute a command on a daemon
     #[pyo3(signature = (daemon_id, command, timeout=300, env=None, cwd=None))]
-    fn execute_command(
+    fn exec(
         &self,
         daemon_id: String,
         command: String,
@@ -112,37 +116,37 @@ impl Server {
         })
     }
 
-    /// Start an interactive shell session
+    /// Create a new interactive session
     #[pyo3(signature = (daemon_id, rows=24, cols=80, term="xterm-256color".to_string()))]
-    fn start_shell(
+    fn new_session(
         &self,
         daemon_id: String,
         rows: u16,
         cols: u16,
         term: String,
-    ) -> PyResult<ShellSession> {
+    ) -> PyResult<Session> {
         let conn = self
             .registry
             .get(&daemon_id)
             .ok_or_else(|| PyValueError::new_err(format!("Daemon {} not found", daemon_id)))?;
 
-        let request_id = Uuid::new_v4().to_string();
+        let session_id = Uuid::new_v4().to_string();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-        conn.register_shell_session(request_id.clone(), tx);
-
-        let msg = Message::StartShell {
-            request_id: request_id.clone(),
+        let msg = Message::NewSession {
+            session_id: session_id.clone(),
             rows,
             cols,
             term,
         };
 
-        conn.send_message(msg)
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to start shell: {}", e)))?;
+        conn.register_session(session_id.clone(), tx);
 
-        Ok(ShellSession {
-            session_id: request_id,
+        conn.send_message(msg)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to start session: {}", e)))?;
+
+        Ok(Session {
+            session_id,
             daemon_id,
             registry: self.registry.clone(),
             runtime_handle: self.runtime.handle().clone(),
@@ -242,9 +246,9 @@ impl Server {
     }
 }
 
-/// Shell session handle
-#[pyclass]
-pub struct ShellSession {
+/// Session handle
+#[pyclass(name = "Session")]
+pub struct Session {
     session_id: String,
     daemon_id: String,
     registry: Arc<DaemonRegistry>,
@@ -253,16 +257,16 @@ pub struct ShellSession {
 }
 
 #[pymethods]
-impl ShellSession {
-    /// Write data to the shell
+impl Session {
+    /// Write data to the session
     fn write(&self, data: Vec<u8>) -> PyResult<()> {
         let conn = self
             .registry
             .get(&self.daemon_id)
             .ok_or_else(|| PyRuntimeError::new_err("Daemon disconnected"))?;
 
-        let msg = Message::ShellInput {
-            request_id: self.session_id.clone(),
+        let msg = Message::SessionInput {
+            session_id: self.session_id.clone(),
             data,
         };
 
@@ -270,34 +274,49 @@ impl ShellSession {
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to write: {}", e)))
     }
 
-    /// Read output from the shell (non-blocking)
+    /// Read output from the session (non-blocking)
     #[pyo3(signature = (timeout=1.0))]
-    fn read(&self, timeout: f64) -> PyResult<Option<Vec<u8>>> {
+    fn read(&self, timeout: f64) -> PyResult<Option<Py<PyBytes>>> {
         self.runtime_handle.block_on(async {
             let mut rx = self.output_rx.lock().await;
             match tokio::time::timeout(Duration::from_secs_f64(timeout), rx.recv()).await {
-                Ok(Some(data)) => Ok(Some(data)),
+                Ok(Some(data)) => Python::with_gil(|py| Ok(Some(PyBytes::new(py, &data).into()))),
                 Ok(None) => Ok(None),
                 Err(_) => Ok(None), // Timeout
             }
         })
     }
 
-    /// Resize the shell
+    /// Resize the session
     fn resize(&self, rows: u16, cols: u16) -> PyResult<()> {
         let conn = self
             .registry
             .get(&self.daemon_id)
             .ok_or_else(|| PyRuntimeError::new_err("Daemon disconnected"))?;
 
-        let msg = Message::ShellResize {
-            request_id: self.session_id.clone(),
+        let msg = Message::SessionResize {
+            session_id: self.session_id.clone(),
             rows,
             cols,
         };
 
         conn.send_message(msg)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to resize: {}", e)))
+    }
+
+    /// Close the session
+    fn close(&self) -> PyResult<()> {
+        let conn = self
+            .registry
+            .get(&self.daemon_id)
+            .ok_or_else(|| PyRuntimeError::new_err("Daemon disconnected"))?;
+
+        let msg = Message::SessionClose {
+            session_id: self.session_id.clone(),
+        };
+
+        conn.send_message(msg)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to close session: {}", e)))
     }
 
     /// Get session ID
@@ -350,7 +369,7 @@ pub struct PyStats {
 #[pymodule]
 fn _core(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Server>()?;
-    m.add_class::<ShellSession>()?;
+    m.add_class::<Session>()?;
     m.add_class::<PyCommandResult>()?;
     m.add_class::<PyStats>()?;
     Ok(())

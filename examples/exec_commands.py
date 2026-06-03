@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal test script for SandD"""
+"""Minimal script for executing simple commands on daemons"""
 
 from sandd import Server
 import time
@@ -23,7 +23,7 @@ try:
             for daemon_id in daemons:
                 try:
                     # Test 1: Python script
-                    result = server.execute_command(
+                    result = server.exec(
                         daemon_id,
                         "python3 -c 'import sys; print(f\"Python {sys.version_info.major}.{sys.version_info.minor}\")'",
                         timeout=5
@@ -34,7 +34,7 @@ try:
                         print(f"\n✗ Python test failed on {daemon_id}: exit_code={result.exit_code}")
 
                     # Test 2: Wrong Python script (intentional error)
-                    result = server.execute_command(
+                    result = server.exec(
                         daemon_id,
                         "python3 -c 'undefined_variable'",
                         timeout=5
@@ -45,7 +45,7 @@ try:
                         print(f"✗ Error handling test failed on {daemon_id}: expected error but got success")
 
                     # Test 3: Echo command
-                    result = server.execute_command(daemon_id, "echo 'Hello from daemon!'", timeout=5)
+                    result = server.exec(daemon_id, "echo 'Hello from daemon!'", timeout=5)
                     if result.success:
                         print(f"✓ Echo test passed on {daemon_id}: {result.stdout.strip()}")
 

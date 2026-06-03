@@ -37,35 +37,38 @@ pub enum Message {
         request_id: String,
         error: String,
     },
-    StartShell {
-        request_id: String,
+    NewSession {
+        session_id: String,
         rows: u16,
         cols: u16,
         #[serde(default = "default_term")]
         term: String,
     },
-    ShellStarted {
-        request_id: String,
+    SessionStarted {
+        session_id: String,
         success: bool,
         error: Option<String>,
     },
-    ShellInput {
-        request_id: String,
+    SessionInput {
+        session_id: String,
         #[serde(with = "base64_bytes")]
         data: Vec<u8>,
     },
-    ShellOutput {
-        request_id: String,
+    SessionOutput {
+        session_id: String,
         #[serde(with = "base64_bytes")]
         data: Vec<u8>,
     },
-    ShellResize {
-        request_id: String,
+    SessionResize {
+        session_id: String,
         rows: u16,
         cols: u16,
     },
-    ShellExit {
-        request_id: String,
+    SessionClose {
+        session_id: String,
+    },
+    SessionExit {
+        session_id: String,
         exit_code: i32,
     },
     FileUploadStart {
