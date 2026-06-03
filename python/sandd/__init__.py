@@ -365,7 +365,7 @@ class Server:
             while True:
                 # Check for input from stdin
                 if sys.platform != "win32":
-                    rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
+                    rlist, _, _ = select.select([sys.stdin], [], [], 0.01)
                     if rlist:
                         data = sys.stdin.read(1)
                         if not data or data == '\x04':  # Ctrl+D
@@ -381,7 +381,7 @@ class Server:
                         session.write(data)
 
                 # Read output from session
-                output = session.read(timeout=0.05)
+                output = session.read(timeout=0.01)
                 if output:
                     sys.stdout.buffer.write(output)
                     sys.stdout.buffer.flush()
