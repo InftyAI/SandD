@@ -196,20 +196,22 @@ impl DaemonRegistry {
         }
     }
 
-    pub fn list_all(&self, label_key: Option<&str>, label_value: Option<&str>) -> Vec<String> {
+    pub fn list_all(&self, labels: Option<&std::collections::HashMap<String, String>>) -> Vec<String> {
         self.connections
             .iter()
             .filter(|entry| {
-                match (label_key, label_value) {
-                    (Some(key), Some(value)) => {
-                        // Filter by label
-                        entry
-                            .value()
-                            .metadata
-                            .labels
-                            .get(key)
-                            .map(|v| v == value)
-                            .unwrap_or(false)
+                match labels {
+                    Some(filter_labels) if !filter_labels.is_empty() => {
+                        // Check if daemon has ALL specified labels (AND logic)
+                        filter_labels.iter().all(|(key, value)| {
+                            entry
+                                .value()
+                                .metadata
+                                .labels
+                                .get(key)
+                                .map(|v| v == value)
+                                .unwrap_or(false)
+                        })
                     }
                     _ => true, // No filter, include all
                 }
@@ -426,7 +428,7 @@ mod tests {
             registry.register(conn);
         }
 
-        let daemons = registry.list_all(None, None);
+        let daemons = registry.list_all(None);
         assert_eq!(daemons.len(), 3);
     }
 
@@ -434,18 +436,20 @@ mod tests {
     fn test_list_all_with_label_filter() {
         let registry = DaemonRegistry::new();
 
-        // Daemon with env=prod label
+        // Daemon with env=prod, region=us-west
         let (tx1, _rx1) = mpsc::unbounded_channel();
         let mut labels1 = HashMap::new();
         labels1.insert("env".to_string(), "prod".to_string());
+        labels1.insert("region".to_string(), "us-west".to_string());
         let metadata1 = create_test_metadata_with_labels("host1", "linux", labels1);
         let conn1 = DaemonConnection::new("daemon-1".to_string(), metadata1, tx1);
         registry.register(conn1);
 
-        // Daemon with env=dev label
+        // Daemon with env=dev, region=us-east
         let (tx2, _rx2) = mpsc::unbounded_channel();
         let mut labels2 = HashMap::new();
         labels2.insert("env".to_string(), "dev".to_string());
+        labels2.insert("region".to_string(), "us-east".to_string());
         let metadata2 = create_test_metadata_with_labels("host2", "linux", labels2);
         let conn2 = DaemonConnection::new("daemon-2".to_string(), metadata2, tx2);
         registry.register(conn2);
@@ -456,22 +460,48 @@ mod tests {
         let conn3 = DaemonConnection::new("daemon-3".to_string(), metadata3, tx3);
         registry.register(conn3);
 
-        // Filter by env=prod
-        let prod_daemons = registry.list_all(Some("env"), Some("prod"));
+        // Filter by single label: env=prod
+        let mut filter = HashMap::new();
+        filter.insert("env".to_string(), "prod".to_string());
+        let prod_daemons = registry.list_all(Some(&filter));
         assert_eq!(prod_daemons.len(), 1);
         assert_eq!(prod_daemons[0], "daemon-1");
 
-        // Filter by env=dev
-        let dev_daemons = registry.list_all(Some("env"), Some("dev"));
+        // Filter by single label: env=dev
+        let mut filter = HashMap::new();
+        filter.insert("env".to_string(), "dev".to_string());
+        let dev_daemons = registry.list_all(Some(&filter));
         assert_eq!(dev_daemons.len(), 1);
         assert_eq!(dev_daemons[0], "daemon-2");
 
+        // Filter by multiple labels: env=prod AND region=us-west (match)
+        let mut filter = HashMap::new();
+        filter.insert("env".to_string(), "prod".to_string());
+        filter.insert("region".to_string(), "us-west".to_string());
+        let multi_match = registry.list_all(Some(&filter));
+        assert_eq!(multi_match.len(), 1);
+        assert_eq!(multi_match[0], "daemon-1");
+
+        // Filter by multiple labels: env=prod AND region=us-east (no match)
+        let mut filter = HashMap::new();
+        filter.insert("env".to_string(), "prod".to_string());
+        filter.insert("region".to_string(), "us-east".to_string());
+        let no_match = registry.list_all(Some(&filter));
+        assert_eq!(no_match.len(), 0);
+
         // Filter by nonexistent label
-        let none_daemons = registry.list_all(Some("env"), Some("staging"));
+        let mut filter = HashMap::new();
+        filter.insert("env".to_string(), "staging".to_string());
+        let none_daemons = registry.list_all(Some(&filter));
         assert_eq!(none_daemons.len(), 0);
 
+        // Empty filter returns all
+        let empty_filter = HashMap::new();
+        let all_daemons = registry.list_all(Some(&empty_filter));
+        assert_eq!(all_daemons.len(), 3);
+
         // No filter returns all
-        let all_daemons = registry.list_all(None, None);
+        let all_daemons = registry.list_all(None);
         assert_eq!(all_daemons.len(), 3);
     }
 

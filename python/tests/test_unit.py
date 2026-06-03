@@ -54,13 +54,13 @@ class TestListDaemons:
 
     def test_with_label_filters(self):
         server = Server()
-        result = server.list_daemons(label_key="env", label_value="prod")
+        result = server.list_daemons(labels={"env": "prod"})
         assert isinstance(result, list)
 
-    def test_with_partial_filters(self):
+    def test_with_multiple_labels(self):
         server = Server()
-        assert isinstance(server.list_daemons(label_key="env"), list)
-        assert isinstance(server.list_daemons(label_value="prod"), list)
+        result = server.list_daemons(labels={"env": "prod", "region": "us-west"})
+        assert isinstance(result, list)
 
 
 class TestDaemonCount:

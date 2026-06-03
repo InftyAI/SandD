@@ -113,28 +113,28 @@ class TestE2ELabels:
 
     def test_filter_by_env_label(self, server):
         """Filter daemons by env label"""
-        test_daemons = server.list_daemons(label_key="env", label_value="test")
+        test_daemons = server.list_daemons(labels={"env": "test"})
         assert "daemon-debian-1" in test_daemons
         assert "daemon-debian-2" in test_daemons
         assert "daemon-alpine-1" in test_daemons
         assert "daemon-rocky-2" in test_daemons
 
-        prod_daemons = server.list_daemons(label_key="env", label_value="prod")
+        prod_daemons = server.list_daemons(labels={"env": "prod"})
         assert "daemon-alpine-2" in prod_daemons
         assert "daemon-rocky-1" in prod_daemons
 
     def test_filter_by_distro_label(self, server):
         """Filter daemons by distribution"""
-        debian_daemons = server.list_daemons(label_key="distro", label_value="debian")
+        debian_daemons = server.list_daemons(labels={"distro": "debian"})
         assert "daemon-debian-1" in debian_daemons
         assert "daemon-debian-2" in debian_daemons
         assert len(debian_daemons) >= 2
 
-        alpine_daemons = server.list_daemons(label_key="distro", label_value="alpine")
+        alpine_daemons = server.list_daemons(labels={"distro": "alpine"})
         assert "daemon-alpine-1" in alpine_daemons
         assert "daemon-alpine-2" in alpine_daemons
 
-        rocky_daemons = server.list_daemons(label_key="distro", label_value="rocky")
+        rocky_daemons = server.list_daemons(labels={"distro": "rocky"})
         assert "daemon-rocky-1" in rocky_daemons
         assert "daemon-rocky-2" in rocky_daemons
 
