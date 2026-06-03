@@ -2,15 +2,13 @@
 
 # SandD
 
-**A Lightweight Sandbox Daemon that Provides Secure, Isolated Execution Environments for Agents.**
+**Sandbox Daemon for Agent Command Execution**
 
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Rust-powered WebSocket server with Python API for secure command execution in isolated environments.
-
-[Features](#features) • [Quick Start](#quick-start) • [Architecture](#architecture) • [Documentation](./docs)
+Rust-powered WebSocket server with Python API for remote command execution and interactive sessions.
 
 </div>
 
@@ -18,13 +16,12 @@ Rust-powered WebSocket server with Python API for secure command execution in is
 
 ## Features
 
-- ✅ **Command Execution**: Execute commands remotely with timeout support
-- ✅ **Interactive Sessions (PTY)**: Full terminal sessions for debugging and manual work
-- ✅ **File Transfer**: Upload/download files between agent and daemons
-- ✅ **High Performance**: Rust-powered WebSocket server handles high-concurrency workloads
-- ✅ **Auto Reconnection**: Daemons automatically reconnect if connection drops
-- ✅ **Heartbeat Monitoring**: Automatic stale connection cleanup
-- ✅ **Cross-Platform**: Works on Linux, macOS, Windows
+- **Command Execution** - Run shell commands on remote machines with timeout control
+- **Interactive Sessions** - Full PTY sessions with bash for manual work
+- **File Transfer** - Upload/download files between controller and workers
+- **High Performance** - Rust async runtime handles high-concurrency workloads
+- **Auto Reconnection** - Workers reconnect automatically on network failures
+- **Cross-Platform** - Linux, macOS, Windows support
 
 ## Architecture
 
@@ -64,86 +61,54 @@ Rust-powered WebSocket server with Python API for secure command execution in is
 
 ## Quick Start
 
-### 1. Build the System
-
 ```bash
-# Install Rust (if not already installed)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# Build Python package
-make install
-
-# Build daemon binary
-make daemon-release
+# Build
+make install          # Python package
+make daemon-release   # Worker binary
 ```
 
-### 2. Start the Agent (Python)
+**Start controller:**
 
 ```python
 from sandd import Server
 
-# Start server
-server = Server(host="0.0.0.0", port=8765)
-print(f"Server listening on {server.address}")
-
-# Wait for daemons
+server = Server("0.0.0.0", 8765)
 server.wait_for_daemon("worker-1", timeout=30)
 
-# Execute command
 result = server.exec("worker-1", "hostname")
-print(f"Output: {result.stdout}")
+print(result.stdout)
 ```
 
-### 3. Start Daemons (Remote Machines)
+**Start worker:**
 
 ```bash
-# On remote machine 1
 ./target/release/sandd \
-    --server-url ws://agent-host:8765/ws \
+    --server-url ws://controller:8765/ws \
     --daemon-id worker-1
-
-# On remote machine 2
-./target/release/sandd \
-    --server-url ws://agent-host:8765/ws \
-    --daemon-id worker-2
-
-# Or let it auto-generate a UUID
-./target/release/sandd \
-    --server-url ws://agent-host:8765/ws
-
-# ... repeat for n+ machines
 ```
 
-## Examples
+## Documentation
 
-See the [examples/](./examples) directory for common use cases.
+- [Quick Start Guide](./docs/QUICKSTART.md)
+- [Architecture Details](./docs/ARCHITECTURE.md)
+- [Protocol Specification](./docs/PROTOCOL.md)
+- [Development Guide](./docs/DEVELOP.md)
+- [Examples](./examples)
 
-## Development
+## Security
 
-See [DEVELOP.md](./docs/DEVELOP.md) for the complete developer guide including build commands, testing, and troubleshooting.
+⚠️ **Add security layers for production use:**
 
-## Security Considerations
+- Use `wss://` (TLS) instead of plain `ws://`
+- Add authentication (tokens, mTLS)
+- Run workers in containers
+- Validate commands before execution
+- Audit log all commands
 
-1. **No exposed daemon ports**: Daemons only make outbound connections to the agent
-2. **Authentication**: Add token-based auth in production (not included in MVP)
-3. **TLS/WSS**: Use `wss://` in production for encrypted connections
-4. **Sandboxing**: Consider running daemon in containers or VMs
-5. **Command validation**: Validate/sanitize commands in your application
+## Contributing
 
-## Future Enhancements
-
-- [ ] SSH protocol tunneling (for IDE remote development)
-- [ ] Token-based authentication
-- [ ] Command audit logging
-- [ ] Resource limits per daemon
-- [ ] Metrics/monitoring integration (Prometheus)
-- [ ] Multi-tenancy support
-- [ ] Command history and replay
+We welcome any kind of contributions, feedback, and suggestions! See [DEVELOP.md](./docs/DEVELOP.md) for development setup and guidelines.
 
 ## License
 
 MIT
-
-## Contributing
-
-Issues and PRs welcome! This is a production-ready foundation for remote command execution.
