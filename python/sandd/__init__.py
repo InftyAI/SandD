@@ -38,7 +38,6 @@ except ImportError as e:
         "Please build the package with: make install"
     ) from e
 
-__version__ = "0.0.0"
 __all__ = [
     "Server",
     "Session",

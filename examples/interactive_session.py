@@ -18,7 +18,7 @@ def main():
     print("Interactive Session Example")
     print("=" * 50)
 
-    # Connect to server
+    # Connect to server, disable verbose logging for cleaner output
     server = Server("127.0.0.1", 8765, verbose=False)
     print(f"✓ Server started on {server.address}\n")
 

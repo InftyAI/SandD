@@ -58,11 +58,16 @@ impl SessionManager {
             .openpty(pty_size)
             .map_err(|e| anyhow!("Failed to open PTY: {}", e))?;
 
-        // Spawn session
+        // Spawn session - try bash first, fall back to $SHELL, then /bin/sh
         let session = if cfg!(target_os = "windows") {
             "cmd.exe".to_string()
         } else {
-            std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+            // Prefer bash (most compatible), then user's shell, then POSIX sh
+            if std::path::Path::new("/bin/bash").exists() {
+                "/bin/bash".to_string()
+            } else {
+                std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+            }
         };
 
         let mut cmd = CommandBuilder::new(&session);
