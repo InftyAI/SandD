@@ -40,7 +40,7 @@ pub enum Message {
     },
 
     // Interactive session (PTY mode)
-    StartSession {
+    NewSession {
         session_id: String,
         rows: u16,
         cols: u16,
@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     fn test_session_messages() {
-        let start = Message::StartSession {
+        let start = Message::NewSession {
             session_id: "session-1".to_string(),
             rows: 24,
             cols: 80,
@@ -270,7 +270,7 @@ mod tests {
         let parsed: Message = serde_json::from_str(&json).unwrap();
 
         match parsed {
-            Message::StartSession {
+            Message::NewSession {
                 session_id,
                 rows,
                 cols,

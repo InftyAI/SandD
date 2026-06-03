@@ -29,7 +29,7 @@ impl SessionManager {
         }
     }
 
-    pub async fn start_session<T>(
+    pub async fn new_session<T>(
         &mut self,
         session_id: String,
         rows: u16,

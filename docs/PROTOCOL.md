@@ -177,13 +177,13 @@ All messages are JSON with a `type` field indicating the message type:
 
 ### Interactive Session (PTY)
 
-#### StartSession
+#### NewSession
 **Direction**: Agent → Daemon
 **Purpose**: Start an interactive session
 
 ```json
 {
-  "type": "start_session",
+  "type": "new_session",
   "session_id": "550e8400-e29b-41d4-a716-446655440001",
   "rows": 24,
   "cols": 80,
@@ -390,7 +390,7 @@ All messages are JSON with a `type` field indicating the message type:
 
 1. Agent generates unique `session_id`
 2. Agent registers mpsc channel for this session
-3. Agent sends `StartSession` message
+3. Agent sends `NewSession` message
 4. Daemon starts PTY and begins streaming output
 5. Agent sends `SessionInput` as user types
 6. Daemon sends `SessionOutput` continuously

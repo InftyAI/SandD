@@ -37,7 +37,7 @@ pub enum Message {
         request_id: String,
         error: String,
     },
-    StartSession {
+    NewSession {
         session_id: String,
         rows: u16,
         cols: u16,

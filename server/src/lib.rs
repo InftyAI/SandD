@@ -133,7 +133,7 @@ impl Server {
         let session_id = Uuid::new_v4().to_string();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let msg = Message::StartSession {
+        let msg = Message::NewSession {
             session_id: session_id.clone(),
             rows,
             cols,

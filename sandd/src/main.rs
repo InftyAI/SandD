@@ -209,7 +209,14 @@ async fn connect_and_serve(
         };
 
         // Handle message inline
-        if let Err(e) = handle_message(message, ws_tx_clone.clone(), executor.clone(), session_manager.clone()).await {
+        if let Err(e) = handle_message(
+            message,
+            ws_tx_clone.clone(),
+            executor.clone(),
+            session_manager.clone(),
+        )
+        .await
+        {
             error!("Error handling message: {}", e);
         }
     }
@@ -293,7 +300,7 @@ where
             }
         }
 
-        Message::StartSession {
+        Message::NewSession {
             session_id,
             rows,
             cols,
@@ -303,7 +310,7 @@ where
 
             let mut manager = session_manager.lock().await;
             let result = manager
-                .start_session(session_id.clone(), rows, cols, &term, ws_tx.clone())
+                .new_session(session_id.clone(), rows, cols, &term, ws_tx.clone())
                 .await;
 
             let response = match result {
@@ -326,11 +333,12 @@ where
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
         }
 
-        Message::SessionInput {
-            session_id,
-            data,
-        } => {
-            debug!("Session input: {} bytes for session {}", data.len(), session_id);
+        Message::SessionInput { session_id, data } => {
+            debug!(
+                "Session input: {} bytes for session {}",
+                data.len(),
+                session_id
+            );
             let manager = session_manager.lock().await;
             if let Err(e) = manager.send_input(&session_id, &data).await {
                 error!("Failed to send input to session {}: {}", session_id, e);
