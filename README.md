@@ -105,6 +105,17 @@ print(result.stdout)
 - Validate commands before execution
 - Audit log all commands
 
+## Roadmap
+
+- [ ] **Authentication** - Token-based auth for daemon connections
+- [ ] **TLS Support** - Built-in WSS with certificate management
+- [ ] **Audit Logging** - Track all commands, sessions, and file transfers
+- [ ] **Metrics** - Prometheus-compatible metrics for monitoring
+- [ ] **Resource Limits** - CPU/memory/timeout controls per daemon
+- [ ] **Multi-tenancy** - Isolated workspaces with access control
+- [ ] **Rate Limiting** - Prevent abuse and resource exhaustion
+- [ ] **Command Allowlist** - Restrict allowed commands per daemon
+
 ## Contributing
 
 We welcome any kind of contributions, feedback, and suggestions! See [DEVELOP.md](./docs/DEVELOP.md) for development setup and guidelines.
