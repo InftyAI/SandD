@@ -137,16 +137,21 @@ class Server:
     Args:
         host: Bind address (default: "0.0.0.0")
         port: Bind port (default: 8765)
+        verbose: Enable logging at INFO level (default: True)
+                Set to False to disable logs (useful for interactive sessions)
 
     Example:
         >>> server = Server("0.0.0.0", 8765)
         >>> server.wait_for_daemon("daemon-1", timeout=30)
         >>> result = server.exec("daemon-1", "hostname")
         >>> print(result.stdout)
+
+        >>> # Disable logs for clean output, useful for interactive sessions
+        >>> server = Server("0.0.0.0", 8765, verbose=False)
     """
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 8765):
-        self._server = _RustServer(host, port)
+    def __init__(self, host: str = "0.0.0.0", port: int = 8765, verbose: bool = True):
+        self._server = _RustServer(host, port, verbose)
         self._host = host
         self._port = port
 

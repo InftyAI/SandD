@@ -19,7 +19,7 @@ def main():
     print("=" * 50)
 
     # Connect to server
-    server = Server("127.0.0.1", 8765)
+    server = Server("127.0.0.1", 8765, verbose=False)
     print(f"✓ Server started on {server.address}\n")
 
     # Wait for at least one daemon

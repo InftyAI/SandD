@@ -32,15 +32,18 @@ pub struct Server {
 #[pymethods]
 impl Server {
     #[new]
-    #[pyo3(signature = (host="0.0.0.0".to_string(), port=8765))]
-    fn new(host: String, port: u16) -> PyResult<Self> {
-        // Initialize logging
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::from_default_env()
-                    .add_directive(tracing::Level::INFO.into()),
-            )
-            .try_init();
+    #[pyo3(signature = (host="0.0.0.0".to_string(), port=8765, verbose=true))]
+    fn new(host: String, port: u16, verbose: bool) -> PyResult<Self> {
+        // Initialize logging: INFO by default, unless verbose=False
+        // RUST_LOG env var can override (e.g., RUST_LOG=debug)
+        if verbose {
+            let _ = tracing_subscriber::fmt()
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::from_default_env()
+                        .add_directive(tracing::Level::INFO.into()),
+                )
+                .try_init();
+        }
 
         let runtime = Runtime::new()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to create runtime: {}", e)))?;
