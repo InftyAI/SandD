@@ -2,7 +2,7 @@
 SandD - High-performance remote command execution system
 
 This package provides a Rust-powered WebSocket server for managing
-200+ concurrent daemon connections with support for:
+high-concurrency daemon connections with support for:
 - Command execution
 - Interactive session (PTY)
 - File transfer
@@ -131,7 +131,7 @@ class Server:
     """Sandbox execution server
 
     High-performance WebSocket server for managing remote daemon connections.
-    Built with Rust for efficient handling of 200+ concurrent connections.
+    Built with Rust for efficient handling of high-concurrency workloads.
 
     Args:
         host: Bind address (default: "0.0.0.0")

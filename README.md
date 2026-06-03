@@ -21,7 +21,7 @@ Rust-powered WebSocket server with Python API for secure command execution in is
 - ✅ **Command Execution**: Execute commands remotely with timeout support
 - ✅ **Interactive Sessions (PTY)**: Full terminal sessions for debugging and manual work
 - ✅ **File Transfer**: Upload/download files between agent and daemons
-- ✅ **High Performance**: Rust-powered WebSocket server handles 200+ concurrent connections
+- ✅ **High Performance**: Rust-powered WebSocket server handles high-concurrency workloads
 - ✅ **Auto Reconnection**: Daemons automatically reconnect if connection drops
 - ✅ **Heartbeat Monitoring**: Automatic stale connection cleanup
 - ✅ **Cross-Platform**: Works on Linux, macOS, Windows
