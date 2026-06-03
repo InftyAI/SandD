@@ -20,11 +20,11 @@
 
 ### Why Rust Server?
 
-At 200+ connections, Python asyncio:
-- Uses 10GB+ memory (vs 2GB Rust)
-- 80%+ CPU idle (vs 5% Rust)
-- 500ms+ p99 latency (vs 20ms Rust)
-- GIL contention kills performance
+For high-concurrency workloads, Python asyncio:
+- Uses significantly more memory than Rust
+- Higher CPU usage and GIL contention
+- Higher p99 latency
+- Rust provides better performance and resource efficiency
 
 ### Why WebSocket?
 

@@ -41,7 +41,7 @@ Run: `python3 simple_agent.py`
     --daemon-id my-daemon-1
 ```
 
-Start 200+ on different machines pointing to same agent URL.
+Start many daemons on different machines pointing to same agent URL.
 
 ## 4. Test
 
