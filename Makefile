@@ -92,7 +92,7 @@ $(MATURIN):
 	@.venv/bin/pip install --quiet maturin
 	@echo "Maturin installed successfully"
 
-.PHONY: build-wheels build-wheels-local build-wheels-linux publish-python-lib
+.PHONY: build-wheels build-wheels-local build-wheels-linux publish-pypi
 
 # Build wheel for current platform only
 build-wheels-local: $(MATURIN)
