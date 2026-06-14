@@ -103,7 +103,7 @@ impl Server {
 
         self.runtime.block_on(async {
             // Wait for result with timeout
-            match tokio::time::timeout(Duration::from_secs(timeout + 5), rx).await {
+            match tokio::time::timeout(Duration::from_secs(timeout), rx).await {
                 Ok(Ok(result)) => Ok(PyCommandResult {
                     stdout: result.stdout,
                     stderr: result.stderr,
@@ -220,10 +220,7 @@ impl Server {
 
     /// List all connected daemons, optionally filtered by labels
     #[pyo3(signature = (labels=None))]
-    fn list_daemons(
-        &self,
-        labels: Option<HashMap<String, String>>,
-    ) -> PyResult<Vec<String>> {
+    fn list_daemons(&self, labels: Option<HashMap<String, String>>) -> PyResult<Vec<String>> {
         Ok(self.registry.list_all(labels.as_ref()))
     }
 
