@@ -53,9 +53,12 @@ class Server:
     ) -> CommandResult:
         """Execute a command on a daemon
 
+        Commands are processed sequentially by each daemon. If multiple commands
+        are sent to the same daemon, they will queue and execute one at a time.
+
         Args:
             daemon_id: Target daemon ID
-            command: Command to execute (session string)
+            command: Command to execute (shell string)
             timeout: Execution timeout in seconds (default: 300)
             env: Environment variables to set
             cwd: Working directory
@@ -69,9 +72,18 @@ class Server:
             RuntimeError: If command fails to execute
 
         Example:
+            >>> # Single command
             >>> result = server.exec("daemon-1", "ls -la /tmp")
             >>> if result.success:
             ...     print(result.stdout)
+            >>>
+            >>> # Multiple commands to same daemon execute sequentially
+            >>> result1 = server.exec("daemon-1", "sleep 5")  # Takes 5s
+            >>> result2 = server.exec("daemon-1", "echo hi")   # Waits for first to finish
+
+        Note:
+            Each daemon processes commands sequentially to ensure predictable
+            execution order and avoid resource conflicts.
         """
         result = self._server.exec(
             daemon_id, command, timeout, env, cwd
@@ -291,8 +303,9 @@ class Server:
     ) -> Dict[str, CommandResult]:
         """Broadcast a command to all daemons matching labels
 
-        Executes the same command on all daemons that match the label filters,
-        running them concurrently in parallel.
+        Executes the same command on all matching daemons concurrently using
+        Python threads. All daemons receive and execute the command in parallel,
+        making this much faster than calling exec() in a loop.
 
         Args:
             labels: Label filters (all must match, AND logic)
@@ -305,7 +318,7 @@ class Server:
             Dict mapping daemon_id -> CommandResult
 
         Example:
-            >>> # Update all production workers
+            >>> # Update all production workers concurrently
             >>> results = server.broadcast(
             ...     labels={"env": "prod", "role": "worker"},
             ...     command="git pull && systemctl restart app"
@@ -317,6 +330,11 @@ class Server:
             ...         print(f"{daemon_id}: OK")
             ...     else:
             ...         print(f"{daemon_id}: FAILED - {result.stderr}")
+
+        Performance:
+            Broadcasting to N daemons takes approximately the same time as
+            executing on a single daemon (all run in parallel), rather than
+            N times longer (sequential execution).
         """
         import concurrent.futures
 

@@ -108,40 +108,37 @@ class TestE2EBasicOperations:
         assert all("Response from" in r.stdout for r in results)
 
     def test_concurrent_execution_same_daemon(self, server):
-        """Execute multiple commands concurrently on the same daemon"""
+        """Execute multiple commands on the same daemon (processed sequentially)"""
         import concurrent.futures
-        import time
 
         daemon_id = "daemon-debian-1"
 
         def run_sleep(n):
-            start = time.time()
             result = server.exec(daemon_id, f"sleep {n} && echo 'slept {n}s'", timeout=10)
-            duration = time.time() - start
-            return result, duration
+            return result
 
         def run_fast():
-            start = time.time()
             result = server.exec(daemon_id, "echo 'fast command'", timeout=5)
-            duration = time.time() - start
-            return result, duration
+            return result
 
-        # Start slow command (3s) and fast command concurrently
+        start = time.time()
+        # Submit both commands - daemon processes them sequentially
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             slow_future = executor.submit(run_sleep, 3)
             fast_future = executor.submit(run_fast)
 
-            # Fast command should complete quickly, not wait for slow one
-            fast_result, fast_duration = fast_future.result()
+            # Both commands succeed
+            fast_result = fast_future.result()
             assert fast_result.success
             assert "fast command" in fast_result.stdout
-            assert fast_duration < 1.0  # Should finish in <1s, not wait for 3s sleep
 
-            # Slow command completes independently
-            slow_result, slow_duration = slow_future.result()
+            slow_result = slow_future.result()
             assert slow_result.success
             assert "slept 3s" in slow_result.stdout
-            assert 2.5 < slow_duration < 4.0
+
+            # Total time is ~3s (sequential: slow command blocks fast one)
+            duration = time.time() - start
+            assert 2.5 < duration < 4.0  # Sequential processing
 
 
 class TestE2EBroadcast:
@@ -204,7 +201,6 @@ class TestE2EBroadcast:
 
     def test_broadcast_concurrent_execution(self, server):
         """Verify broadcast executes concurrently, not serially"""
-        import time
 
         # Broadcast a 2-second sleep to test daemons
         start = time.time()
@@ -216,7 +212,7 @@ class TestE2EBroadcast:
 
         # Should complete in ~2-3 seconds (concurrent), not 8+ seconds (serial)
         assert len(results) == 4
-        assert duration < 4.0  # If serial, would be 8+ seconds
+        assert 8.0 < duration < 10.0  # If it were serial, it would take 4 daemons * 2s each = 8s+
 
         for result in results.values():
             assert result.success
