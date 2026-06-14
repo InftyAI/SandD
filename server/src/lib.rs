@@ -227,7 +227,7 @@ impl Server {
     #[pyo3(signature = (labels=None))]
     fn list_daemons(&self, labels: Option<HashMap<String, String>>) -> PyResult<Vec<PyDaemonInfo>> {
         let daemon_ids = self.registry.list_all(labels.as_ref());
-        let mut result = Vec::new();
+        let mut result = Vec::with_capacity(daemon_ids.len());
 
         for daemon_id in daemon_ids {
             if let Some(conn) = self.registry.get(&daemon_id) {
