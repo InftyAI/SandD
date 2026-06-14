@@ -57,8 +57,6 @@ Rust-powered WebSocket server with Python API for remote command execution and i
        └───────┘ └───────┘ └───────┘
 ```
 
-**Key Design**: Daemons connect **TO** the agent (not the other way around), so no ports need to be exposed on the execution plane.
-
 ## Installation
 
 ### Python Package (Controller)

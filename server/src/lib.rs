@@ -73,6 +73,7 @@ impl Server {
     #[pyo3(signature = (daemon_id, command, timeout=300, env=None, cwd=None))]
     fn exec(
         &self,
+        py: Python,
         daemon_id: String,
         command: String,
         timeout: u64,
@@ -101,18 +102,22 @@ impl Server {
         conn.send_message(msg)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to send command: {}", e)))?;
 
-        self.runtime.block_on(async {
-            // Wait for result with timeout
-            match tokio::time::timeout(Duration::from_secs(timeout + 5), rx).await {
-                Ok(Ok(result)) => Ok(PyCommandResult {
-                    stdout: result.stdout,
-                    stderr: result.stderr,
-                    exit_code: result.exit_code,
-                    duration_ms: result.duration_ms,
-                }),
-                Ok(Err(_)) => Err(PyRuntimeError::new_err("Command channel closed")),
-                Err(_) => Err(PyTimeoutError::new_err("Command execution timed out")),
-            }
+        // Release GIL while waiting for result to allow Python thread concurrency
+        // Re-acquire GIL to return result or raise timeout error
+        py.allow_threads(|| {
+            self.runtime.block_on(async {
+                // Wait for result with timeout
+                match tokio::time::timeout(Duration::from_secs(timeout), rx).await {
+                    Ok(Ok(result)) => Ok(PyCommandResult {
+                        stdout: result.stdout,
+                        stderr: result.stderr,
+                        exit_code: result.exit_code,
+                        duration_ms: result.duration_ms,
+                    }),
+                    Ok(Err(_)) => Err(PyRuntimeError::new_err("Command channel closed")),
+                    Err(_) => Err(PyTimeoutError::new_err("Command execution timed out")),
+                }
+            })
         })
     }
 
@@ -220,10 +225,7 @@ impl Server {
 
     /// List all connected daemons, optionally filtered by labels
     #[pyo3(signature = (labels=None))]
-    fn list_daemons(
-        &self,
-        labels: Option<HashMap<String, String>>,
-    ) -> PyResult<Vec<String>> {
+    fn list_daemons(&self, labels: Option<HashMap<String, String>>) -> PyResult<Vec<String>> {
         Ok(self.registry.list_all(labels.as_ref()))
     }
 

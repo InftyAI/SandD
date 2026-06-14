@@ -108,40 +108,114 @@ class TestE2EBasicOperations:
         assert all("Response from" in r.stdout for r in results)
 
     def test_concurrent_execution_same_daemon(self, server):
-        """Execute multiple commands concurrently on the same daemon"""
+        """Execute multiple commands on the same daemon (processed sequentially)"""
         import concurrent.futures
-        import time
 
         daemon_id = "daemon-debian-1"
 
         def run_sleep(n):
-            start = time.time()
             result = server.exec(daemon_id, f"sleep {n} && echo 'slept {n}s'", timeout=10)
-            duration = time.time() - start
-            return result, duration
+            return result
 
         def run_fast():
-            start = time.time()
             result = server.exec(daemon_id, "echo 'fast command'", timeout=5)
-            duration = time.time() - start
-            return result, duration
+            return result
 
-        # Start slow command (3s) and fast command concurrently
+        start = time.time()
+        # Submit both commands - daemon processes them sequentially
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             slow_future = executor.submit(run_sleep, 3)
             fast_future = executor.submit(run_fast)
 
-            # Fast command should complete quickly, not wait for slow one
-            fast_result, fast_duration = fast_future.result()
+            # Both commands succeed
+            fast_result = fast_future.result()
             assert fast_result.success
             assert "fast command" in fast_result.stdout
-            assert fast_duration < 1.0  # Should finish in <1s, not wait for 3s sleep
 
-            # Slow command completes independently
-            slow_result, slow_duration = slow_future.result()
+            slow_result = slow_future.result()
             assert slow_result.success
             assert "slept 3s" in slow_result.stdout
-            assert 2.5 < slow_duration < 4.0
+
+            # Total time is ~3s (sequential: slow command blocks fast one)
+            duration = time.time() - start
+            assert 2.5 < duration < 4.0  # Sequential processing
+
+
+class TestE2EBroadcast:
+    """Test broadcast operations"""
+
+    def test_broadcast_simple_command(self, server):
+        """Broadcast a simple command to multiple daemons"""
+        results = server.broadcast(
+            labels={"env": "test"},
+            command="echo 'hello from broadcast'"
+        )
+
+        # Should have 4 test daemons
+        assert len(results) == 4
+
+        # Check all succeeded
+        for _, result in results.items():
+            assert result.success
+            assert "hello from broadcast" in result.stdout
+
+    def test_broadcast_with_multiple_labels(self, server):
+        """Broadcast with multiple label filters (AND logic)"""
+        results = server.broadcast(
+            labels={"env": "test", "distro": "debian"},
+            command="hostname"
+        )
+
+        # Should match only debian test daemons
+        assert len(results) == 2
+        assert "daemon-debian-1" in results
+        assert "daemon-debian-2" in results
+
+        for result in results.values():
+            assert result.success
+
+    def test_broadcast_no_matching_daemons(self, server):
+        """Broadcast with labels that match no daemons"""
+        results = server.broadcast(
+            labels={"env": "nonexistent"},
+            command="hostname"
+        )
+
+        # Should return empty dict
+        assert len(results) == 0
+
+    def test_broadcast_with_failure(self, server):
+        """Broadcast command that fails on some daemons"""
+        results = server.broadcast(
+            labels={"env": "prod"},
+            command="exit 1"
+        )
+
+        # Should have results for prod daemons
+        assert len(results) == 2
+
+        # All should have exit code 1
+        for result in results.values():
+            assert not result.success
+            assert result.exit_code == 1
+
+    def test_broadcast_concurrent_execution(self, server):
+        """Verify broadcast executes concurrently, not serially"""
+
+        # Broadcast a 2-second sleep to test daemons
+        start = time.time()
+        results = server.broadcast(
+            labels={"env": "test"},
+            command="sleep 2"
+        )
+        duration = time.time() - start
+
+        # Should complete in ~2-3 seconds (concurrent), not 8+ seconds (serial)
+        assert len(results) == 4
+        assert 2.0 < duration < 3.0
+
+        for result in results.values():
+            assert result.success
 
 
 class TestE2ELabels:

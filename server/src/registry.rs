@@ -121,6 +121,10 @@ impl DaemonConnection {
         }
     }
 
+    pub fn is_busy(&self) -> bool {
+        !self.pending_commands.is_empty()
+    }
+
     pub fn register_session(&self, session_id: String, tx: mpsc::UnboundedSender<Vec<u8>>) {
         self.sessions.insert(session_id, tx);
     }
@@ -196,7 +200,10 @@ impl DaemonRegistry {
         }
     }
 
-    pub fn list_all(&self, labels: Option<&std::collections::HashMap<String, String>>) -> Vec<String> {
+    pub fn list_all(
+        &self,
+        labels: Option<&std::collections::HashMap<String, String>>,
+    ) -> Vec<String> {
         self.connections
             .iter()
             .filter(|entry| {
