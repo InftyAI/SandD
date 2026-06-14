@@ -283,14 +283,13 @@ class Server:
 
     def list_daemons(
         self,
-        label_key: Optional[str] = None,
-        label_value: Optional[str] = None,
+        labels: Optional[Dict[str, str]] = None,
     ) -> List[str]:
-        """List all connected daemon IDs, optionally filtered by label
+        """List all connected daemon IDs, optionally filtered by labels
 
         Args:
-            label_key: Label key to filter by (only applied when label_value is also provided)
-            label_value: Label value to filter by (only applied when label_key is also provided)
+            labels: Dictionary of label key-value pairs to filter by (AND logic)
+                   All specified labels must match for a daemon to be included
 
         Returns:
             List of daemon IDs
@@ -300,12 +299,15 @@ class Server:
             >>> daemons = server.list_daemons()
             >>> print(f"Connected: {len(daemons)} daemons")
             >>>
-            >>> # List daemons with env=prod label
-            >>> prod_daemons = server.list_daemons(label_key="env", label_value="prod")
-            >>> for daemon_id in prod_daemons:
+            >>> # List daemons with single label
+            >>> prod_daemons = server.list_daemons(labels={"env": "prod"})
+            >>>
+            >>> # List daemons with multiple labels (AND logic)
+            >>> west_prod = server.list_daemons(labels={"env": "prod", "region": "us-west"})
+            >>> for daemon_id in west_prod:
             ...     print(f"  - {daemon_id}")
         """
-        return self._server.list_daemons(label_key, label_value)
+        return self._server.list_daemons(labels)
 
     def daemon_count(self) -> int:
         """Get number of connected daemons

@@ -165,22 +165,27 @@ class TestDaemonConnection:
             assert len(all_daemons) >= 2
 
             # Test: filter by env=prod
-            prod_daemons = server.list_daemons(label_key="env", label_value="prod")
+            prod_daemons = server.list_daemons(labels={"env": "prod"})
             assert daemon_id_prod in prod_daemons
             assert daemon_id_dev not in prod_daemons
 
             # Test: filter by env=dev
-            dev_daemons = server.list_daemons(label_key="env", label_value="dev")
+            dev_daemons = server.list_daemons(labels={"env": "dev"})
             assert daemon_id_dev in dev_daemons
             assert daemon_id_prod not in dev_daemons
 
             # Test: filter by region=us-west
-            region_daemons = server.list_daemons(label_key="region", label_value="us-west")
+            region_daemons = server.list_daemons(labels={"region": "us-west"})
             assert daemon_id_prod in region_daemons
             assert daemon_id_dev not in region_daemons
 
+            # Test: filter by multiple labels (AND logic)
+            west_prod = server.list_daemons(labels={"env": "prod", "region": "us-west"})
+            assert daemon_id_prod in west_prod
+            assert daemon_id_dev not in west_prod
+
             # Test: filter by non-existent label
-            none_daemons = server.list_daemons(label_key="env", label_value="staging")
+            none_daemons = server.list_daemons(labels={"env": "staging"})
             assert daemon_id_prod not in none_daemons
             assert daemon_id_dev not in none_daemons
 

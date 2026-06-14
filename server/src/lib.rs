@@ -218,16 +218,13 @@ impl Server {
         })
     }
 
-    /// List all connected daemons, optionally filtered by label
-    #[pyo3(signature = (label_key=None, label_value=None))]
+    /// List all connected daemons, optionally filtered by labels
+    #[pyo3(signature = (labels=None))]
     fn list_daemons(
         &self,
-        label_key: Option<String>,
-        label_value: Option<String>,
+        labels: Option<HashMap<String, String>>,
     ) -> PyResult<Vec<String>> {
-        let key_ref = label_key.as_deref();
-        let value_ref = label_value.as_deref();
-        Ok(self.registry.list_all(key_ref, value_ref))
+        Ok(self.registry.list_all(labels.as_ref()))
     }
 
     /// Get daemon count

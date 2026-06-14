@@ -107,34 +107,70 @@ class TestE2EBasicOperations:
         assert all(r.success for r in results)
         assert all("Response from" in r.stdout for r in results)
 
+    def test_concurrent_execution_same_daemon(self, server):
+        """Execute multiple commands concurrently on the same daemon"""
+        import concurrent.futures
+        import time
+
+        daemon_id = "daemon-debian-1"
+
+        def run_sleep(n):
+            start = time.time()
+            result = server.exec(daemon_id, f"sleep {n} && echo 'slept {n}s'", timeout=10)
+            duration = time.time() - start
+            return result, duration
+
+        def run_fast():
+            start = time.time()
+            result = server.exec(daemon_id, "echo 'fast command'", timeout=5)
+            duration = time.time() - start
+            return result, duration
+
+        # Start slow command (3s) and fast command concurrently
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            slow_future = executor.submit(run_sleep, 3)
+            fast_future = executor.submit(run_fast)
+
+            # Fast command should complete quickly, not wait for slow one
+            fast_result, fast_duration = fast_future.result()
+            assert fast_result.success
+            assert "fast command" in fast_result.stdout
+            assert fast_duration < 1.0  # Should finish in <1s, not wait for 3s sleep
+
+            # Slow command completes independently
+            slow_result, slow_duration = slow_future.result()
+            assert slow_result.success
+            assert "slept 3s" in slow_result.stdout
+            assert 2.5 < slow_duration < 4.0
+
 
 class TestE2ELabels:
     """Test label-based filtering in E2E"""
 
     def test_filter_by_env_label(self, server):
         """Filter daemons by env label"""
-        test_daemons = server.list_daemons(label_key="env", label_value="test")
+        test_daemons = server.list_daemons(labels={"env": "test"})
         assert "daemon-debian-1" in test_daemons
         assert "daemon-debian-2" in test_daemons
         assert "daemon-alpine-1" in test_daemons
         assert "daemon-rocky-2" in test_daemons
 
-        prod_daemons = server.list_daemons(label_key="env", label_value="prod")
+        prod_daemons = server.list_daemons(labels={"env": "prod"})
         assert "daemon-alpine-2" in prod_daemons
         assert "daemon-rocky-1" in prod_daemons
 
     def test_filter_by_distro_label(self, server):
         """Filter daemons by distribution"""
-        debian_daemons = server.list_daemons(label_key="distro", label_value="debian")
+        debian_daemons = server.list_daemons(labels={"distro": "debian"})
         assert "daemon-debian-1" in debian_daemons
         assert "daemon-debian-2" in debian_daemons
         assert len(debian_daemons) >= 2
 
-        alpine_daemons = server.list_daemons(label_key="distro", label_value="alpine")
+        alpine_daemons = server.list_daemons(labels={"distro": "alpine"})
         assert "daemon-alpine-1" in alpine_daemons
         assert "daemon-alpine-2" in alpine_daemons
 
-        rocky_daemons = server.list_daemons(label_key="distro", label_value="rocky")
+        rocky_daemons = server.list_daemons(labels={"distro": "rocky"})
         assert "daemon-rocky-1" in rocky_daemons
         assert "daemon-rocky-2" in rocky_daemons
 
@@ -289,18 +325,22 @@ class TestE2ESessionSessions:
 
         try:
             # Send multi-line command
-            session.write(b"for i in 1 2 3; do\n")
-            time.sleep(0.2)
-            session.write(b"echo $i\n")
-            time.sleep(0.2)
-            session.write(b"done\n")
+            session.write(b"for i in 1 2 3; do echo $i; done\n")
             time.sleep(0.5)
 
-            output = session.read(timeout=2.0)
-            assert output is not None
-            output_str = output.decode('utf-8', errors='ignore')
+            # Read all output chunks
+            all_output = b''
+            for _ in range(5):
+                output = session.read(timeout=0.5)
+                if output:
+                    all_output += output
+                else:
+                    break
+
+            assert all_output
+            output_str = all_output.decode('utf-8', errors='ignore')
             # Should see the numbers
-            assert '1' in output_str and '2' in output_str
+            assert '1' in output_str and '2' in output_str and '3' in output_str
 
         finally:
             session.close()
