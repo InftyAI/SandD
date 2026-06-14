@@ -18,9 +18,9 @@ Rust-powered WebSocket server with Python API for remote command execution and i
 
 - **Command Execution** - Run shell commands on remote machines with timeout control
 - **Interactive Sessions** - Full PTY sessions with bash for manual work
-- **File Transfer** - Upload/download files between server and daemons
+- **File Transfer** - Upload/download files between controller and workers
 - **High Performance** - Rust async runtime handles high-concurrency workloads
-- **Auto Reconnection** - Daemons reconnect automatically on network failures
+- **Auto Reconnection** - Workers reconnect automatically on network failures
 - **Cross-Platform** - Linux, macOS, Windows support
 
 ## Architecture
@@ -56,6 +56,8 @@ Rust-powered WebSocket server with Python API for remote command execution and i
        │  #1   │ │  #2   │ │  #n   │
        └───────┘ └───────┘ └───────┘
 ```
+
+**Key Design**: Daemons connect **TO** the agent (not the other way around), so no ports need to be exposed on the execution plane.
 
 ## Installation
 
@@ -122,7 +124,7 @@ sandd --server-url ws://controller-ip:8765/ws --daemon-id worker-1
 
 - Use `wss://` (TLS) instead of plain `ws://`
 - Add authentication (tokens, mTLS)
-- Run daemons in containers
+- Run workers in containers
 - Validate commands before execution
 - Audit log all commands
 
