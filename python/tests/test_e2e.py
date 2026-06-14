@@ -144,6 +144,84 @@ class TestE2EBasicOperations:
             assert 2.5 < slow_duration < 4.0
 
 
+class TestE2EBroadcast:
+    """Test broadcast operations"""
+
+    def test_broadcast_simple_command(self, server):
+        """Broadcast a simple command to multiple daemons"""
+        results = server.broadcast(
+            labels={"env": "test"},
+            command="echo 'hello from broadcast'"
+        )
+
+        # Should have 4 test daemons
+        assert len(results) == 4
+
+        # Check all succeeded
+        for _, result in results.items():
+            assert result.success
+            assert "hello from broadcast" in result.stdout
+
+    def test_broadcast_with_multiple_labels(self, server):
+        """Broadcast with multiple label filters (AND logic)"""
+        results = server.broadcast(
+            labels={"env": "test", "distro": "debian"},
+            command="hostname"
+        )
+
+        # Should match only debian test daemons
+        assert len(results) == 2
+        assert "daemon-debian-1" in results
+        assert "daemon-debian-2" in results
+
+        for result in results.values():
+            assert result.success
+
+    def test_broadcast_no_matching_daemons(self, server):
+        """Broadcast with labels that match no daemons"""
+        results = server.broadcast(
+            labels={"env": "nonexistent"},
+            command="hostname"
+        )
+
+        # Should return empty dict
+        assert len(results) == 0
+
+    def test_broadcast_with_failure(self, server):
+        """Broadcast command that fails on some daemons"""
+        results = server.broadcast(
+            labels={"env": "prod"},
+            command="exit 1"
+        )
+
+        # Should have results for prod daemons
+        assert len(results) == 2
+
+        # All should have exit code 1
+        for result in results.values():
+            assert not result.success
+            assert result.exit_code == 1
+
+    def test_broadcast_concurrent_execution(self, server):
+        """Verify broadcast executes concurrently, not serially"""
+        import time
+
+        # Broadcast a 2-second sleep to test daemons
+        start = time.time()
+        results = server.broadcast(
+            labels={"env": "test"},
+            command="sleep 2"
+        )
+        duration = time.time() - start
+
+        # Should complete in ~2-3 seconds (concurrent), not 8+ seconds (serial)
+        assert len(results) == 4
+        assert duration < 4.0  # If serial, would be 8+ seconds
+
+        for result in results.values():
+            assert result.success
+
+
 class TestE2ELabels:
     """Test label-based filtering in E2E"""
 
