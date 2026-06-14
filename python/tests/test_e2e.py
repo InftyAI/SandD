@@ -60,13 +60,14 @@ class TestE2EBasicOperations:
     def test_all_daemons_connected(self, server):
         """Verify all 6 daemons connected (2 debian + 2 alpine + 2 rocky)"""
         daemons = server.list_daemons()
+        daemon_ids = [d.id for d in daemons]
         expected = [
             "daemon-debian-1", "daemon-debian-2",
             "daemon-alpine-1", "daemon-alpine-2",
             "daemon-rocky-1", "daemon-rocky-2"
         ]
         for daemon_id in expected:
-            assert daemon_id in daemons
+            assert daemon_id in daemon_ids
         assert server.daemon_count() >= 6
 
     def test_execute_on_each_daemon(self, server):
@@ -224,29 +225,34 @@ class TestE2ELabels:
     def test_filter_by_env_label(self, server):
         """Filter daemons by env label"""
         test_daemons = server.list_daemons(labels={"env": "test"})
-        assert "daemon-debian-1" in test_daemons
-        assert "daemon-debian-2" in test_daemons
-        assert "daemon-alpine-1" in test_daemons
-        assert "daemon-rocky-2" in test_daemons
+        test_ids = [d.id for d in test_daemons]
+        assert "daemon-debian-1" in test_ids
+        assert "daemon-debian-2" in test_ids
+        assert "daemon-alpine-1" in test_ids
+        assert "daemon-rocky-2" in test_ids
 
         prod_daemons = server.list_daemons(labels={"env": "prod"})
-        assert "daemon-alpine-2" in prod_daemons
-        assert "daemon-rocky-1" in prod_daemons
+        prod_ids = [d.id for d in prod_daemons]
+        assert "daemon-alpine-2" in prod_ids
+        assert "daemon-rocky-1" in prod_ids
 
     def test_filter_by_distro_label(self, server):
         """Filter daemons by distribution"""
         debian_daemons = server.list_daemons(labels={"distro": "debian"})
-        assert "daemon-debian-1" in debian_daemons
-        assert "daemon-debian-2" in debian_daemons
+        debian_ids = [d.id for d in debian_daemons]
+        assert "daemon-debian-1" in debian_ids
+        assert "daemon-debian-2" in debian_ids
         assert len(debian_daemons) >= 2
 
         alpine_daemons = server.list_daemons(labels={"distro": "alpine"})
-        assert "daemon-alpine-1" in alpine_daemons
-        assert "daemon-alpine-2" in alpine_daemons
+        alpine_ids = [d.id for d in alpine_daemons]
+        assert "daemon-alpine-1" in alpine_ids
+        assert "daemon-alpine-2" in alpine_ids
 
         rocky_daemons = server.list_daemons(labels={"distro": "rocky"})
-        assert "daemon-rocky-1" in rocky_daemons
-        assert "daemon-rocky-2" in rocky_daemons
+        rocky_ids = [d.id for d in rocky_daemons]
+        assert "daemon-rocky-1" in rocky_ids
+        assert "daemon-rocky-2" in rocky_ids
 
 
 class TestE2EResilience:

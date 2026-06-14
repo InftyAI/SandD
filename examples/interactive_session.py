@@ -29,14 +29,14 @@ def main():
         time.sleep(1)
         daemons = server.list_daemons()
 
-    daemon_id = daemons[0]
-    print(f"✓ Found daemon: {daemon_id}\n")
+    daemon = daemons[0]
+    print(f"✓ Found daemon: {daemon.id} (version={daemon.version})\n")
 
     print("Starting interactive terminal...")
     print()
 
     # Start session in interactive mode - this blocks until user exits
-    server.new_session(daemon_id, interactive=True)
+    server.new_session(daemon.id, interactive=True)
 
 
 if __name__ == "__main__":

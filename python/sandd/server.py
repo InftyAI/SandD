@@ -5,7 +5,7 @@ import time
 import sys
 import select
 
-from .models import CommandResult, ServerStats
+from .models import CommandResult, ServerStats, DaemonInfo
 
 try:
     from ._core import Server as _RustServer, Session
@@ -185,30 +185,41 @@ class Server:
     def list_daemons(
         self,
         labels: Optional[Dict[str, str]] = None,
-    ) -> List[str]:
-        """List all connected daemon IDs, optionally filtered by labels
+    ) -> List[DaemonInfo]:
+        """List all connected daemons with their information, optionally filtered by labels
 
         Args:
             labels: Dictionary of label key-value pairs to filter by (AND logic)
                    All specified labels must match for a daemon to be included
 
         Returns:
-            List of daemon IDs
+            List of DaemonInfo objects
 
         Example:
             >>> # List all daemons
             >>> daemons = server.list_daemons()
             >>> print(f"Connected: {len(daemons)} daemons")
+            >>> for daemon in daemons:
+            ...     print(f"  {daemon.id}: {daemon.version}, busy={daemon.is_busy}")
             >>>
             >>> # List daemons with single label
             >>> prod_daemons = server.list_daemons(labels={"env": "prod"})
             >>>
             >>> # List daemons with multiple labels (AND logic)
             >>> west_prod = server.list_daemons(labels={"env": "prod", "region": "us-west"})
-            >>> for daemon_id in west_prod:
-            ...     print(f"  - {daemon_id}")
+            >>> for daemon in west_prod:
+            ...     print(f"  - {daemon.id} ({daemon.labels})")
         """
-        return self._server.list_daemons(labels)
+        py_infos = self._server.list_daemons(labels)
+        return [
+            DaemonInfo(
+                id=info.id,
+                version=info.version,
+                labels=info.labels,
+                is_busy=info.is_busy,
+            )
+            for info in py_infos
+        ]
 
     def daemon_count(self) -> int:
         """Get number of connected daemons
@@ -339,9 +350,11 @@ class Server:
         import concurrent.futures
 
         # Get matching daemons
-        daemon_ids = self.list_daemons(labels=labels)
-        if not daemon_ids:
+        daemons = self.list_daemons(labels=labels)
+        if not daemons:
             return {}
+
+        daemon_ids = [d.id for d in daemons]
 
         # Execute command on all daemons concurrently
         def run_command(daemon_id):
@@ -390,7 +403,8 @@ class Server:
         """
         start = time.time()
         while time.time() - start < timeout:
-            if daemon_id in self.list_daemons():
+            daemons = self.list_daemons()
+            if any(d.id == daemon_id for d in daemons):
                 return True
             time.sleep(poll_interval)
         return False

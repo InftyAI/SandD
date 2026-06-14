@@ -39,7 +39,7 @@ Example (Async API - Not Yet Implemented):
     ... )
 """
 
-from .models import CommandResult, ServerStats
+from .models import CommandResult, ServerStats, DaemonInfo
 from .server import Server
 from .async_server import AsyncServer
 
@@ -57,4 +57,5 @@ __all__ = [
     "Session",
     "CommandResult",
     "ServerStats",
+    "DaemonInfo",
 ]
