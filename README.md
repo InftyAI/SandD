@@ -59,13 +59,38 @@ Rust-powered WebSocket server with Python API for remote command execution and i
 
 **Key Design**: Daemons connect **TO** the agent (not the other way around), so no ports need to be exposed on the execution plane.
 
-## Quick Start
+## Installation
 
+### Python Package (Controller)
+
+Install from PyPI:
 ```bash
-# Build
-make install          # Python package
-make daemon-release   # Worker binary
+pip install sandd
 ```
+
+Or build from source:
+```bash
+git clone https://github.com/InftyAI/SandD
+cd SandD
+make install
+```
+
+### Daemon Binary (Worker)
+
+Install from crates.io:
+```bash
+cargo install sandd
+```
+
+Or build from source:
+```bash
+git clone https://github.com/InftyAI/SandD
+cd SandD
+make daemon-release
+# Binary at: ./target/release/sandd
+```
+
+## Quick Start
 
 **Start controller:**
 
@@ -82,9 +107,7 @@ print(result.stdout)
 **Start worker:**
 
 ```bash
-./target/release/sandd \
-    --server-url ws://controller:8765/ws \
-    --daemon-id worker-1
+sandd --server-url ws://controller-ip:8765/ws --daemon-id worker-1
 ```
 
 ## Documentation

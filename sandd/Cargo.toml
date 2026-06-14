@@ -1,8 +1,15 @@
 [package]
 name = "sandd"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2021"
 license = "MIT"
+description = "A lightweight sandbox daemon for secure agent execution in isolated environments."
+repository = "https://github.com/InftyAI/SandD"
+homepage = "https://github.com/InftyAI/SandD"
+documentation = "https://github.com/InftyAI/SandD/tree/main/docs"
+readme = "../README.md"
+keywords = ["agent", "daemon", "sandbox"]
+categories = ["command-line-utilities"]
 
 [[bin]]
 name = "sandd"

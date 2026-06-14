@@ -4,16 +4,20 @@ build-backend = "maturin"
 
 [project]
 name = "sandd"
-version = "0.1.0"
-description = "SandD - A lightweight sandbox daemon that provides secure, isolated execution environments for agents."
+version = "0.0.0"
+description = "A lightweight sandbox daemon for secure agent execution in isolated environments."
+readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.8"
 license = {text = "MIT"}
-classifiers = [
-    "Programming Language :: Rust",
-    "Programming Language :: Python :: Implementation :: CPython",
-    "License :: OSI Approved :: MIT License",
+authors = [
+    {name = "InftyAI", email = "contact@inftyai.com"}
 ]
+keywords = ["agent", "daemon", "sandbox"]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/InftyAI/SandD"
+Repository = "https://github.com/InftyAI/SandD"
 
 [project.optional-dependencies]
 dev = [
@@ -27,6 +31,18 @@ dev = [
 module-name = "sandd._core"
 python-source = "python"
 features = ["pyo3/extension-module"]
+include = [
+    "server/**/*",
+    "python/**/*",
+    "README.md",
+    "LICENSE",
+]
+exclude = [
+    "Cargo.toml",
+    "sandd/**/*",
+    "target/**/*",
+    ".git/**/*",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
