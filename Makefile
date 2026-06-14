@@ -91,3 +91,42 @@ $(MATURIN):
 	@python3 -m venv .venv || true
 	@.venv/bin/pip install --quiet maturin
 	@echo "Maturin installed successfully"
+
+.PHONY: build-wheels build-wheels-local build-wheels-linux publish-python-lib
+
+# Build wheel for current platform only
+build-wheels-local: $(MATURIN)
+	@echo "Building wheel for current platform..."
+	$(MATURIN) build --release -m server/Cargo.toml
+
+# Build Linux wheels using Docker
+build-wheels-linux:
+	@echo "Building Linux wheels using Docker..."
+	@command -v docker >/dev/null 2>&1 || { echo "Error: Docker not found"; exit 1; }
+	@echo "Building for Linux x86_64..."
+	docker run --rm --platform linux/amd64 -v $$(pwd):/io ghcr.io/pyo3/maturin build --release -m /io/server/Cargo.toml
+	@echo "Building for Linux aarch64..."
+	docker run --rm --platform linux/arm64 -v $$(pwd):/io ghcr.io/pyo3/maturin build --release -m /io/server/Cargo.toml
+
+# Build all wheels (local + Linux if Docker available)
+build-wheels: build-wheels-local build-wheels-linux
+
+# Upload wheels to PyPI
+publish-pypi: $(MATURIN) build-wheels
+	@if [ -z "$(INFTYAI_PYPI_TOKEN)" ]; then \
+		echo "Error: INFTYAI_PYPI_TOKEN environment variable not set"; \
+		exit 1; \
+	fi
+	@if [ ! -d "target/wheels" ] || [ -z "$$(ls -A target/wheels/*.whl 2>/dev/null)" ]; then \
+		echo "Error: No wheels found. Run 'make build-wheels' first"; \
+		exit 1; \
+	fi
+	@echo "Uploading wheels to PyPI..."
+	@ls target/wheels/*.whl
+	$(MATURIN) upload target/wheels/*.whl --skip-existing --username __token__ --password $(INFTYAI_PYPI_TOKEN)
+
+.PHONY: publish-crate
+# Publish daemon binary to crates.io
+publish-crate:
+	@echo "Publishing sandd daemon to crates.io..."
+	cargo publish --package sandd
