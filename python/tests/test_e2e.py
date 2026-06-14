@@ -212,7 +212,7 @@ class TestE2EBroadcast:
 
         # Should complete in ~2-3 seconds (concurrent), not 8+ seconds (serial)
         assert len(results) == 4
-        assert 8.0 < duration < 10.0  # If it were serial, it would take 4 daemons * 2s each = 8s+
+        assert 2.0 < duration < 3.0
 
         for result in results.values():
             assert result.success
