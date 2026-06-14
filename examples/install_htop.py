@@ -90,8 +90,9 @@ def main():
         time.sleep(1)
         daemons = server.list_daemons()
 
-    daemon_id = daemons[0]
-    print(f"✓ Found daemon: {daemon_id}\n")
+    daemon = daemons[0]
+    daemon_id = daemon.id
+    print(f"✓ Found daemon: {daemon_id} (version={daemon.version})\n")
 
     # Check if htop is available
     print("Checking if htop is available...")

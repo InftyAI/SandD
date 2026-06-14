@@ -225,8 +225,22 @@ impl Server {
 
     /// List all connected daemons, optionally filtered by labels
     #[pyo3(signature = (labels=None))]
-    fn list_daemons(&self, labels: Option<HashMap<String, String>>) -> PyResult<Vec<String>> {
-        Ok(self.registry.list_all(labels.as_ref()))
+    fn list_daemons(&self, labels: Option<HashMap<String, String>>) -> PyResult<Vec<PyDaemonInfo>> {
+        let daemon_ids = self.registry.list_all(labels.as_ref());
+        let mut result = Vec::with_capacity(daemon_ids.len());
+
+        for daemon_id in daemon_ids {
+            if let Some(conn) = self.registry.get(&daemon_id) {
+                result.push(PyDaemonInfo {
+                    id: conn.id.clone(),
+                    version: conn.metadata.version.clone(),
+                    labels: conn.metadata.labels.clone(),
+                    is_busy: conn.is_busy(),
+                });
+            }
+        }
+
+        Ok(result)
     }
 
     /// Get daemon count
@@ -325,6 +339,20 @@ impl Session {
     }
 }
 
+/// Daemon information
+#[pyclass]
+#[derive(Clone)]
+pub struct PyDaemonInfo {
+    #[pyo3(get)]
+    pub id: String,
+    #[pyo3(get)]
+    pub version: String,
+    #[pyo3(get)]
+    pub labels: HashMap<String, String>,
+    #[pyo3(get)]
+    pub is_busy: bool,
+}
+
 /// Command execution result
 #[pyclass]
 #[derive(Clone)]
@@ -370,6 +398,7 @@ fn _core(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Server>()?;
     m.add_class::<Session>()?;
     m.add_class::<PyCommandResult>()?;
+    m.add_class::<PyDaemonInfo>()?;
     m.add_class::<PyStats>()?;
     Ok(())
 }

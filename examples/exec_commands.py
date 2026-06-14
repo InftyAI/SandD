@@ -20,7 +20,8 @@ try:
         print(f"\rConnected: {stats.total_daemons} | Platforms: {stats.by_platform}", end="", flush=True)
 
         if daemons and len(daemons) > 0:
-            for daemon_id in daemons:
+            for daemon in daemons:
+                daemon_id = daemon.id
                 try:
                     # Test 1: Python script
                     result = server.exec(

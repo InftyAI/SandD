@@ -79,7 +79,8 @@ class TestDaemonConnection:
 
         # Verify daemon is in the list
         daemons = server.list_daemons()
-        assert daemon_id in daemons
+        daemon_ids = [d.id for d in daemons]
+        assert daemon_id in daemon_ids
 
         # Verify daemon count
         assert server.daemon_count() == 1
@@ -109,9 +110,10 @@ class TestDaemonConnection:
 
             # Verify all connected
             daemons = server.list_daemons()
+            daemon_id_list = [d.id for d in daemons]
             assert server.daemon_count() == 3
             for daemon_id in daemon_ids:
-                assert daemon_id in daemons
+                assert daemon_id in daemon_id_list
 
         finally:
             # Cleanup all daemons
@@ -160,29 +162,34 @@ class TestDaemonConnection:
 
             # Test: list all daemons (no filter)
             all_daemons = server.list_daemons()
-            assert daemon_id_prod in all_daemons
-            assert daemon_id_dev in all_daemons
+            all_ids = [d.id for d in all_daemons]
+            assert daemon_id_prod in all_ids
+            assert daemon_id_dev in all_ids
             assert len(all_daemons) >= 2
 
             # Test: filter by env=prod
             prod_daemons = server.list_daemons(labels={"env": "prod"})
-            assert daemon_id_prod in prod_daemons
-            assert daemon_id_dev not in prod_daemons
+            prod_ids = [d.id for d in prod_daemons]
+            assert daemon_id_prod in prod_ids
+            assert daemon_id_dev not in prod_ids
 
             # Test: filter by env=dev
             dev_daemons = server.list_daemons(labels={"env": "dev"})
-            assert daemon_id_dev in dev_daemons
-            assert daemon_id_prod not in dev_daemons
+            dev_ids = [d.id for d in dev_daemons]
+            assert daemon_id_dev in dev_ids
+            assert daemon_id_prod not in dev_ids
 
             # Test: filter by region=us-west
             region_daemons = server.list_daemons(labels={"region": "us-west"})
-            assert daemon_id_prod in region_daemons
-            assert daemon_id_dev not in region_daemons
+            region_ids = [d.id for d in region_daemons]
+            assert daemon_id_prod in region_ids
+            assert daemon_id_dev not in region_ids
 
             # Test: filter by multiple labels (AND logic)
             west_prod = server.list_daemons(labels={"env": "prod", "region": "us-west"})
-            assert daemon_id_prod in west_prod
-            assert daemon_id_dev not in west_prod
+            west_prod_ids = [d.id for d in west_prod]
+            assert daemon_id_prod in west_prod_ids
+            assert daemon_id_dev not in west_prod_ids
 
             # Test: filter by non-existent label
             none_daemons = server.list_daemons(labels={"env": "staging"})

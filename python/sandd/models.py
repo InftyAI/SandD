@@ -58,6 +58,35 @@ class CommandResult:
         )
 
 
+class DaemonInfo:
+    """Information about a connected daemon
+
+    Attributes:
+        id: Daemon identifier
+        version: Daemon version string
+        labels: Key-value labels for filtering
+        is_busy: Whether daemon has pending commands
+    """
+
+    def __init__(
+        self,
+        id: str,
+        version: str,
+        labels: Dict[str, str],
+        is_busy: bool,
+    ):
+        self.id = id
+        self.version = version
+        self.labels = labels
+        self.is_busy = is_busy
+
+    def __repr__(self) -> str:
+        return (
+            f"DaemonInfo(id={self.id!r}, version={self.version!r}, "
+            f"labels={self.labels}, is_busy={self.is_busy})"
+        )
+
+
 class ServerStats:
     """Server statistics
 
