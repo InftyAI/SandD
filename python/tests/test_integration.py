@@ -390,6 +390,7 @@ class TestGetDaemon:
         # Check initial state (should not be busy)
         daemon = server.get_daemon(daemon_id)
         assert daemon is not None
+        assert daemon.is_busy is False
 
         # Start a long-running command in background
         import threading
@@ -409,7 +410,7 @@ class TestGetDaemon:
         # Check if daemon is now busy (might be, depending on timing)
         daemon_during = server.get_daemon(daemon_id)
         assert daemon_during is not None
-        # Note: is_busy might be True or False depending on exact timing
+        assert daemon_during.is_busy is True
 
         # Wait for command to complete
         thread.join()
@@ -417,7 +418,7 @@ class TestGetDaemon:
         # Daemon should not be busy anymore
         daemon_after = server.get_daemon(daemon_id)
         assert daemon_after is not None
-
+        assert daemon_after.is_busy is False
 
 class TestServerStats:
     """Test server statistics with real connections"""
