@@ -358,9 +358,7 @@ class TestGetDaemon:
 
             # Daemon should no longer be found
             daemon = server.get_daemon(daemon_id)
-            # Note: depending on implementation, it might still be there briefly
-            # but eventually it should be None or the connection should be marked as dead
-
+            assert daemon is None
         finally:
             try:
                 proc.kill()
@@ -541,7 +539,12 @@ class TestWaitForDaemon:
             assert result_holder["connected"] is True
 
         finally:
-            proc.kill()
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
 
 
 @pytest.mark.skipif(
