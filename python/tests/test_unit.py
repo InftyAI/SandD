@@ -123,6 +123,31 @@ class TestErrorHandling:
             server.download_file("invalid", "/tmp/test")
 
 
+class TestGetDaemon:
+    """Test get_daemon method"""
+
+    def test_returns_none_when_not_found(self):
+        """Test get_daemon returns None for non-existent daemon"""
+        server = Server()
+        result = server.get_daemon("nonexistent-daemon-id")
+        assert result is None
+
+    def test_returns_none_with_various_ids(self):
+        """Test get_daemon returns None for various non-existent IDs"""
+        server = Server()
+        test_ids = ["test-1", "daemon-123", "prod-worker-5", "invalid"]
+        for daemon_id in test_ids:
+            result = server.get_daemon(daemon_id)
+            assert result is None, f"Expected None for {daemon_id}"
+
+    def test_accepts_string_id(self):
+        """Test get_daemon accepts string daemon ID"""
+        server = Server()
+        # Should not raise any exceptions with valid string input
+        result = server.get_daemon("some-daemon-id")
+        assert result is None  # Will be None since no daemon connected
+
+
 class TestWaitForDaemon:
     """Test wait_for_daemon method"""
 

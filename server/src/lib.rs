@@ -257,6 +257,16 @@ impl Server {
             oldest_connection_secs: stats.oldest_connection_secs,
         })
     }
+
+    /// Get daemon by ID (returns None if not found)
+    fn get_daemon(&self, daemon_id: String) -> PyResult<Option<PyDaemonInfo>> {
+        Ok(self.registry.get(&daemon_id).map(|conn| PyDaemonInfo {
+            id: conn.id.clone(),
+            version: conn.metadata.version.clone(),
+            labels: conn.metadata.labels.clone(),
+            is_busy: conn.is_busy(),
+        }))
+    }
 }
 
 /// Session handle

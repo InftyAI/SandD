@@ -242,6 +242,32 @@ class Server:
         """
         return ServerStats(self._server.get_stats())
 
+    def get_daemon(self, daemon_id: str) -> Optional[DaemonInfo]:
+        """Get daemon by ID
+
+        Args:
+            daemon_id: Daemon ID to lookup
+
+        Returns:
+            DaemonInfo if found, None otherwise
+
+        Example:
+            >>> daemon = server.get_daemon("daemon-1")
+            >>> if daemon:
+            ...     print(f"Found: {daemon.id}, busy={daemon.is_busy}")
+            ... else:
+            ...     print("Daemon not found")
+        """
+        info = self._server.get_daemon(daemon_id)
+        if info is None:
+            return None
+        return DaemonInfo(
+            id=info.id,
+            version=info.version,
+            labels=info.labels,
+            is_busy=info.is_busy,
+        )
+
     def _run_interactive(self, session: Session) -> None:
         """Run session in interactive mode with live terminal
 
@@ -403,8 +429,7 @@ class Server:
         """
         start = time.time()
         while time.time() - start < timeout:
-            daemons = self.list_daemons()
-            if any(d.id == daemon_id for d in daemons):
+            if self.get_daemon(daemon_id) is not None:
                 return True
             time.sleep(poll_interval)
         return False

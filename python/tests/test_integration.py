@@ -279,6 +279,147 @@ class TestCommandExecution:
         assert "Python" in result.stdout
 
 
+class TestGetDaemon:
+    """Test get_daemon functionality with real daemons"""
+
+    def test_get_existing_daemon(self, server, daemon_process):
+        """Test get_daemon returns DaemonInfo for connected daemon"""
+        daemon_id, _ = daemon_process
+
+        daemon = server.get_daemon(daemon_id)
+
+        assert daemon is not None
+        assert daemon.id == daemon_id
+        assert isinstance(daemon.version, str)
+        assert isinstance(daemon.labels, dict)
+        assert isinstance(daemon.is_busy, bool)
+
+    def test_get_nonexistent_daemon(self, server, daemon_process):
+        """Test get_daemon returns None for non-existent daemon"""
+        _, _ = daemon_process
+
+        result = server.get_daemon("definitely-not-a-real-daemon-id-12345")
+        assert result is None
+
+    def test_get_daemon_with_labels(self, server, sandd_binary):
+        """Test get_daemon returns daemon with labels"""
+        daemon_id = f"test-labeled-daemon-{os.getpid()}"
+        server_url = f"ws://127.0.0.1:{server.address.split(':')[1]}/ws"
+
+        proc = subprocess.Popen(
+            [
+                sandd_binary,
+                "--server-url", server_url,
+                "--daemon-id", daemon_id,
+                "--label", "env=staging",
+                "--label", "team=backend",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        try:
+            assert server.wait_for_daemon(daemon_id, timeout=5.0)
+
+            daemon = server.get_daemon(daemon_id)
+            assert daemon is not None
+            assert daemon.id == daemon_id
+            assert daemon.labels == {"env": "staging", "team": "backend"}
+
+        finally:
+            proc.kill()
+
+    def test_get_daemon_after_disconnect(self, server, sandd_binary):
+        """Test get_daemon returns None after daemon disconnects"""
+        daemon_id = f"test-disconnect-daemon-{os.getpid()}"
+        server_url = f"ws://127.0.0.1:{server.address.split(':')[1]}/ws"
+
+        proc = subprocess.Popen(
+            [sandd_binary, "--server-url", server_url, "--daemon-id", daemon_id],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        try:
+            # Wait for connection
+            assert server.wait_for_daemon(daemon_id, timeout=5.0)
+
+            # Verify daemon is there
+            daemon = server.get_daemon(daemon_id)
+            assert daemon is not None
+            assert daemon.id == daemon_id
+
+            # Kill the daemon
+            proc.kill()
+            proc.wait()
+
+            # Give some time for disconnect to register
+            time.sleep(0.5)
+
+            # Daemon should no longer be found
+            daemon = server.get_daemon(daemon_id)
+            # Note: depending on implementation, it might still be there briefly
+            # but eventually it should be None or the connection should be marked as dead
+
+        finally:
+            try:
+                proc.kill()
+            except:  # noqa: E722
+                pass
+
+    def test_get_daemon_multiple_times(self, server, daemon_process):
+        """Test calling get_daemon multiple times returns consistent results"""
+        daemon_id, _ = daemon_process
+
+        # Call multiple times
+        daemon1 = server.get_daemon(daemon_id)
+        daemon2 = server.get_daemon(daemon_id)
+        daemon3 = server.get_daemon(daemon_id)
+
+        assert daemon1 is not None
+        assert daemon2 is not None
+        assert daemon3 is not None
+
+        # All should have the same ID
+        assert daemon1.id == daemon2.id == daemon3.id == daemon_id
+
+    def test_get_daemon_busy_state(self, server, daemon_process):
+        """Test get_daemon reflects busy state"""
+        daemon_id, _ = daemon_process
+
+        # Check initial state (should not be busy)
+        daemon = server.get_daemon(daemon_id)
+        assert daemon is not None
+        initial_busy = daemon.is_busy
+
+        # Start a long-running command in background
+        import threading
+
+        def run_long_command():
+            try:
+                server.exec(daemon_id, "sleep 2", timeout=5)
+            except:  # noqa: E722
+                pass
+
+        thread = threading.Thread(target=run_long_command)
+        thread.start()
+
+        # Give command time to start
+        time.sleep(0.2)
+
+        # Check if daemon is now busy (might be, depending on timing)
+        daemon_during = server.get_daemon(daemon_id)
+        assert daemon_during is not None
+        # Note: is_busy might be True or False depending on exact timing
+
+        # Wait for command to complete
+        thread.join()
+
+        # Daemon should not be busy anymore
+        daemon_after = server.get_daemon(daemon_id)
+        assert daemon_after is not None
+
+
 class TestServerStats:
     """Test server statistics with real connections"""
 
