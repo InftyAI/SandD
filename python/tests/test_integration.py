@@ -390,7 +390,6 @@ class TestGetDaemon:
         # Check initial state (should not be busy)
         daemon = server.get_daemon(daemon_id)
         assert daemon is not None
-        initial_busy = daemon.is_busy
 
         # Start a long-running command in background
         import threading
