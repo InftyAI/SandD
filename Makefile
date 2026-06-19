@@ -53,22 +53,22 @@ clean:
 
 test-e2e: $(PYTEST) dev
 	@echo "Building Docker images..."
-	docker compose -f docker-compose.e2e.yml build
+	docker compose -f hack/docker/docker-compose.e2e.yml build
 	@echo ""
 	@echo "Running E2E tests with Docker..."
 	$(PYTEST) python/tests/test_e2e.py -v -s
 	@echo ""
 	@echo "Cleaning up containers..."
-	docker compose -f docker-compose.e2e.yml down
+	docker compose -f hack/docker/docker-compose.e2e.yml down
 
 docker-build:
-	docker compose -f docker-compose.e2e.yml build
+	docker compose -f hack/docker/docker-compose.e2e.yml build
 
 docker-up:
-	docker compose -f docker-compose.e2e.yml up -d
+	docker compose -f hack/docker/docker-compose.e2e.yml up -d
 
 docker-down:
-	docker compose -f docker-compose.e2e.yml down
+	docker compose -f hack/docker/docker-compose.e2e.yml down
 
 .PHONY: lint
 lint: $(RUFF)

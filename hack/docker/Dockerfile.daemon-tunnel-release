@@ -1,0 +1,38 @@
+# SandD Daemon with Tunnel Support (Release Version)
+# Downloads pre-built binary from GitHub releases
+#
+# Build: docker build -f hack/docker/Dockerfile.daemon-tunnel-release \
+#        --build-arg SANDD_VERSION=v0.1.0 \
+#        -t inftyai/sandd-daemon:v0.1.0-tunnel .
+# Run:   docker run --cap-add NET_ADMIN --device /dev/net/tun inftyai/sandd-daemon:v0.1.0-tunnel
+
+FROM debian:bookworm-slim
+
+LABEL maintainer="InftyAI <contact@inftyai.com>"
+LABEL description="SandD daemon with Tailscale support (release version)"
+
+# Install Tailscale and dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    iptables \
+    iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Tailscale client
+RUN curl -fsSL https://tailscale.com/install.sh | sh
+
+# Download pre-built daemon binary from GitHub releases
+ARG SANDD_VERSION=v0.1.0
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+
+RUN curl -fsSL \
+    https://github.com/InftyAI/SandD/releases/download/${SANDD_VERSION}/sandd-${TARGETOS}-${TARGETARCH} \
+    -o /usr/local/bin/sandd && \
+    chmod +x /usr/local/bin/sandd
+
+# Create directory for Tailscale state
+RUN mkdir -p /var/lib/tailscale
+
+ENTRYPOINT ["sandd"]

@@ -44,7 +44,7 @@ from .server import Server
 from .async_server import AsyncServer
 
 try:
-    from ._core import Session
+    from ._core import Session, TunnelConfig
 except ImportError as e:
     raise ImportError(
         "Failed to import Rust extension. "
@@ -58,4 +58,5 @@ __all__ = [
     "CommandResult",
     "ServerStats",
     "DaemonInfo",
+    "TunnelConfig",
 ]

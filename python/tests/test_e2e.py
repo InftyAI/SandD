@@ -11,7 +11,7 @@ from sandd import Server
 @pytest.fixture(scope="module")
 def docker_daemons():
     """Start Docker containers with daemons"""
-    compose_file = "docker-compose.e2e.yml"
+    compose_file = "hack/docker/docker-compose.e2e.yml"
 
     # Build and start containers
     subprocess.run(

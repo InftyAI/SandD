@@ -39,6 +39,18 @@ struct Args {
     /// Labels in key=value format (e.g., --label env=prod --label region=us-west)
     #[arg(short, long = "label", value_name = "KEY=VALUE")]
     labels: Vec<String>,
+
+    /// Enable tunnel mode (requires Tailscale)
+    #[arg(long)]
+    tunnel: bool,
+
+    /// Tunnel auth key (required if --tunnel is set)
+    #[arg(long)]
+    tunnel_authkey: Option<String>,
+
+    /// Tunnel control server URL (required if --tunnel is set)
+    #[arg(long)]
+    tunnel_server: Option<String>,
 }
 
 #[tokio::main]
@@ -56,6 +68,7 @@ async fn main() -> Result<()> {
     // Generate daemon ID if not provided
     let daemon_id = args
         .daemon_id
+        .clone()
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     // Parse labels from key=value format
@@ -71,6 +84,12 @@ async fn main() -> Result<()> {
     info!("Starting sandbox daemon: {}", daemon_id);
     if !labels.is_empty() {
         info!("Labels: {:?}", labels);
+    }
+
+    // Handle tunnel mode
+    if args.tunnel {
+        info!("Tunnel mode enabled");
+        setup_tunnel(&args).await?;
     }
 
     // Main connection loop with reconnection
@@ -432,4 +451,76 @@ async fn handle_intree_command(cmd: &str) -> Result<String> {
     match cmd {
         _ => Err(anyhow::anyhow!("Unknown in-tree command: {}", cmd)),
     }
+}
+
+async fn setup_tunnel(args: &Args) -> Result<()> {
+    use std::process::Command;
+
+    // Validate required arguments
+    let authkey = args
+        .tunnel_authkey
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("--tunnel requires --tunnel-authkey"))?;
+
+    let server = args
+        .tunnel_server
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("--tunnel requires --tunnel-server"))?;
+
+    // Check if tailscale is installed
+    let tailscale_check = Command::new("which").arg("tailscale").output();
+
+    if tailscale_check.is_err() || !tailscale_check.unwrap().status.success() {
+        return Err(anyhow::anyhow!(
+            "Tailscale not found. Install it first:\n  \
+            curl -fsSL https://raw.githubusercontent.com/InftyAI/SandD/main/hack/scripts/install.sh | sudo bash -s -- --tunnel"
+        ));
+    }
+
+    info!("Starting tailscaled...");
+
+    // Start tailscaled in background (if not already running)
+    let _tailscaled = Command::new("tailscaled")
+        .arg("--tun=userspace-networking")
+        .arg("--state=/var/lib/tailscale/tailscaled.state")
+        .spawn();
+
+    // Give tailscaled time to start
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    info!("Joining mesh network...");
+
+    // Join mesh
+    let output = Command::new("tailscale")
+        .arg("up")
+        .arg(format!("--authkey={}", authkey))
+        .arg(format!("--login-server={}", server))
+        .arg("--accept-routes")
+        .output()?;
+
+    if !output.status.success() {
+        return Err(anyhow::anyhow!(
+            "Failed to join mesh: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    // Wait for IP assignment
+    for _ in 0..30 {
+        let ip_output = Command::new("tailscale").arg("ip").arg("-4").output();
+
+        if let Ok(output) = ip_output {
+            if output.status.success() {
+                let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !ip.is_empty() {
+                    info!("✓ Joined mesh network with IP: {}", ip);
+                    return Ok(());
+                }
+            }
+        }
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+
+    Err(anyhow::anyhow!("Timeout waiting for mesh IP assignment"))
 }

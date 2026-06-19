@@ -1,0 +1,53 @@
+# ⚠️  DEVELOPMENT ONLY - NOT FOR PRODUCTION
+#
+# This is a minimal Headscale configuration for testing SandD tunnel mode.
+# For production deployments, see: https://headscale.net/ref/configuration/
+
+# Server URL that clients connect to
+server_url: http://headscale:8080
+
+# Listen address
+listen_addr: 0.0.0.0:8080
+
+# IP range for the mesh network
+# Using 100.64.0.0/10 (CGNAT range, RFC 6598) - recommended by Tailscale/Headscale
+# This is where 100.64.0.1, 100.64.0.2, etc. are assigned from
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+
+# Private keys (auto-generated if not exist)
+private_key_path: /var/lib/headscale/private.key
+noise:
+  private_key_path: /var/lib/headscale/noise_private.key
+
+# Database (SQLite for simplicity)
+database:
+  type: sqlite3
+  path: /var/lib/headscale/db.sqlite
+
+# Logging
+log:
+  level: info
+  format: text
+
+# DNS configuration (updated format)
+dns:
+  magic_dns: true
+  base_domain: sandd.local
+  nameservers:
+    global:
+      - 1.1.1.1
+
+# gRPC API for CLI commands (headscale users create, etc.)
+grpc_listen_addr: 0.0.0.0:50443
+grpc_allow_insecure: true
+
+# DERP servers for NAT traversal (uses Tailscale's public servers)
+derp:
+  server:
+    enabled: false
+  urls:
+    - https://controlplane.tailscale.com/derpmap/default
+  auto_update_enabled: true
+  update_frequency: 24h
