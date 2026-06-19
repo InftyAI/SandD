@@ -17,15 +17,69 @@ SandD supports secure tunnel mode for production deployments using mesh VPN tech
 
 ---
 
-## Quick Comparison
+## Direct Mode vs Tunnel Mode (VPN)
 
-| Feature | Direct Mode | Tunnel Mode |
-|---------|-------------|-------------|
-| Setup | 5 minutes | 15 minutes |
-| Controller IP | Public | Private (mesh) |
-| NAT traversal | Manual | Automatic |
-| Network isolation | ❌ | ✅ |
-| Multi-cloud | ⚠️ Needs VPN | ✅ Built-in |
+### Visual Comparison
+
+**Direct Mode (No VPN):**
+```
+┌──────────┐                        ┌──────────┐
+│ Daemon   │──── WebSocket over ───→│Controller│
+│          │     public internet    │Public IP │
+└──────────┘                        └──────────┘
+
+- Direct WebSocket connection
+- No VPN
+- Controller needs public IP
+- Daemons connect over internet
+```
+
+**Tunnel Mode (Mesh VPN):**
+```
+┌──────────┐                        ┌──────────┐
+│ Daemon   │════ VPN tunnel ════════│Controller│
+│ Mesh IP  │  WireGuard encrypted   │ Mesh IP  │
+└──────────┘                        └──────────┘
+     ↓                                   ↓
+  Join VPN                            Join VPN
+     ↓                                   ↓
+┌────────────────────────────────────────────┐
+│      Headscale (VPN coordinator)           │
+└────────────────────────────────────────────┘
+
+- VPN mesh network
+- Encrypted tunnels between nodes
+- Private mesh IPs
+- No public IPs needed
+```
+
+### Feature Comparison
+
+| Feature | Direct Mode | Tunnel Mode (VPN) |
+|---------|-------------|-------------------|
+| **Setup complexity** | Simple (5 min) | Medium (15 min) |
+| **Controller IP** | Must be public | Can be private |
+| **Daemon location** | Anywhere (outbound) | Anywhere (mesh) |
+| **NAT traversal** | Manual (firewall rules) | Automatic (hole punching) |
+| **Encryption** | Need to add TLS | Built-in (WireGuard) |
+| **Port exposure** | Public (attack surface) | Hidden (mesh only) |
+| **Multi-cloud** | Need VPC peering | Works automatically |
+| **Use case** | Single cloud/datacenter | Cross-cloud, laptop↔cloud |
+
+### When to Use Each
+
+**Use Direct Mode when:**
+- ✅ Controller has stable public IP
+- ✅ Single cloud or trusted network
+- ✅ Development and testing
+- ✅ Simple setup preferred
+
+**Use Tunnel Mode (VPN) when:**
+- ✅ Controller behind NAT (laptop, home, corporate)
+- ✅ Multiple clouds (AWS + GCP + Azure)
+- ✅ Don't want exposed ports
+- ✅ Need encrypted communication
+- ✅ Dynamic IPs or ephemeral instances
 
 ---
 
