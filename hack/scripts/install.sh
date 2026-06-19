@@ -247,7 +247,7 @@ main() {
     check_root
     detect_os
     install_dependencies
-    # install_sandd
+    install_sandd
 
     if [[ "$INSTALL_TUNNEL" == "true" ]]; then
         install_tailscale
