@@ -105,13 +105,13 @@ Behind home router           Behind cloud firewall
 
 ```
 ┌────────────────────────────────────────┐
-│ 1. Coordination (Headscale)           │
-│    "Who can join? Where are they?"    │
+│ 1. Coordination (Headscale)            │
+│    "Who can join? Where are they?"     │
 │    → Authentication & peer discovery   │
 └────────────────────────────────────────┘
                  +
 ┌────────────────────────────────────────┐
-│ 2. NAT Traversal (Hole Punching)      │
+│ 2. NAT Traversal (Hole Punching)       │
 │    "How do I reach you behind NAT?"    │
 │    → Makes devices reachable           │
 └────────────────────────────────────────┘
@@ -147,7 +147,7 @@ Behind home router           Behind cloud firewall
 ```
 ┌──────────────────────────────┐
 │ Headscale (Public)           │
-│ 203.0.113.100:8080          │
+│ 203.0.113.100:8080           │
 └──────────────────────────────┘
      ↑                    ↑
      │ Outbound ✓         │ Outbound ✓
@@ -221,8 +221,8 @@ Daemon → Internet → Controller (public IP:8765)
 ### Tunnel Mode
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Headscale Server                      │
-│                  (runs once, centrally)                  │
+│                    Headscale Server                     │
+│                  (runs once, centrally)                 │
 └─────────────────────────────────────────────────────────┘
            ↑                                   ↑
            │                                   │
