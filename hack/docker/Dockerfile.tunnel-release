@@ -1,0 +1,33 @@
+# SandD Server with Tunnel Support (Release Version)
+# Uses published PyPI package instead of building from source
+#
+# Build: docker build -f hack/docker/Dockerfile.tunnel-release -t inftyai/sandd-server:v0.1.0-tunnel .
+# Run:   docker run --cap-add NET_ADMIN --device /dev/net/tun inftyai/sandd-server:v0.1.0-tunnel
+
+FROM python:3.11-slim-bookworm
+
+LABEL maintainer="InftyAI <contact@inftyai.com>"
+LABEL description="SandD server with tunnel support (release version)"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    iptables \
+    iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Tailscale client
+RUN curl -fsSL https://tailscale.com/install.sh | sh
+
+# Install SandD from PyPI (specify version or use latest)
+ARG SANDD_VERSION=0.0.0
+RUN pip install --no-cache-dir sandd==${SANDD_VERSION}
+
+# Create directory for Tailscale state
+RUN mkdir -p /var/lib/tailscale
+
+WORKDIR /app
+
+# Default command
+CMD ["python", "-c", "from sandd import Server; print('SandD server ready')"]

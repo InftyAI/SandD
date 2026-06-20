@@ -30,6 +30,7 @@ dev = [
 [tool.maturin]
 module-name = "sandd._core"
 python-source = "python"
+manifest-path = "server/Cargo.toml"
 features = ["pyo3/extension-module"]
 include = [
     "server/**/*",
@@ -39,10 +40,13 @@ include = [
 ]
 exclude = [
     "Cargo.toml",
-    "sandd/**/*",
+    "/sandd",        # Only exclude root sandd/ directory (Rust daemon source)
     "target/**/*",
     ".git/**/*",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    "e2e: end-to-end tests with Docker (slow, skip by default)",
+]

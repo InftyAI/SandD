@@ -8,7 +8,7 @@ import select
 from .models import CommandResult, ServerStats, DaemonInfo
 
 try:
-    from ._core import Server as _RustServer, Session
+    from ._core import Server as _RustServer, Session, TunnelConfig
 except ImportError as e:
     raise ImportError(
         "Failed to import Rust extension. "
@@ -25,21 +25,54 @@ class Server:
     Args:
         host: Bind address (default: "0.0.0.0")
         port: Bind port (default: 8765)
+        connect: Connection mode (default: "direct")
+            - "direct": Direct WebSocket connections
+            - "tunnel": Secure VPN tunnel via Headscale
+        tunnel_config: Tunnel configuration (required if connect="tunnel")
         verbose: Enable logging at INFO level (default: True)
                 Set to False to disable logs (useful for interactive sessions)
 
     Example:
-        >>> server = Server("0.0.0.0", 8765)
-        >>> server.wait_for_daemon("daemon-1", timeout=30)
+        >>> # Development (direct connection)
+        >>> server = Server()
         >>> result = server.exec("daemon-1", "hostname")
         >>> print(result.stdout)
 
-        >>> # Disable logs for clean output, useful for interactive sessions
-        >>> server = Server("0.0.0.0", 8765, verbose=False)
+        >>> # Production (secure tunnel)
+        >>> from sandd import TunnelConfig
+        >>> config = TunnelConfig(
+        ...     authkey="your-key",
+        ...     server="http://headscale:8080"
+        ... )
+        >>> server = Server(connect="tunnel", tunnel_config=config)
+        >>> result = server.exec("daemon-1", "hostname")
     """
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 8765, verbose: bool = True):
-        self._server = _RustServer(host, port, verbose)
+    def __init__(
+        self,
+        host: str = "0.0.0.0",
+        port: int = 8765,
+        connect: str = "direct",
+        tunnel_config: Optional[TunnelConfig] = None,
+        verbose: bool = True
+    ):
+        if connect not in ["direct", "tunnel"]:
+            raise ValueError(
+                f"connect must be 'direct' or 'tunnel', got '{connect}'"
+            )
+
+        if connect == "tunnel" and tunnel_config is None:
+            raise ValueError(
+                "tunnel mode requires tunnel_config parameter\n"
+                "Example: Server(connect='tunnel', tunnel_config=TunnelConfig(authkey='xxx', server='http://headscale:8080'))"
+            )
+
+        self._connect = connect
+        self._tunnel_config = tunnel_config
+
+        # Pass tunnel config object to Rust
+        self._server = _RustServer(host, port, verbose, connect, tunnel_config)
+
         self._host = host
         self._port = port
 

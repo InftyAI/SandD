@@ -178,7 +178,7 @@ async fn handle_daemon_message(
             *daemon_id = Some(id.clone());
 
             info!(
-                "Daemon {} registered: {} {} {}",
+                "Daemon {} registered: hostname={} platform={} arch={}",
                 id, metadata.hostname, metadata.platform, metadata.arch
             );
 

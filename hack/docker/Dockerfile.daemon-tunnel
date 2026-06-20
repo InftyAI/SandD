@@ -1,0 +1,37 @@
+# SandD Daemon with Tunnel Support (Build from Source)
+# Multi-stage build: builds the daemon binary and includes Tailscale
+
+# Stage 1: Build the daemon binary
+FROM rust:bookworm AS builder
+
+WORKDIR /build
+COPY . .
+
+# Build the daemon
+RUN cargo build --release --bin sandd
+
+# Stage 2: Runtime image with Tailscale
+FROM debian:bookworm-slim
+
+LABEL maintainer="InftyAI <contact@inftyai.com>"
+LABEL description="SandD daemon with Tailscale support"
+
+# Install Tailscale and dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    iptables \
+    iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Tailscale client
+RUN curl -fsSL https://tailscale.com/install.sh | sh
+
+# Copy daemon binary from builder
+COPY --from=builder /build/target/release/sandd /usr/local/bin/sandd
+RUN chmod +x /usr/local/bin/sandd
+
+# Create directory for Tailscale state
+RUN mkdir -p /var/lib/tailscale
+
+ENTRYPOINT ["sandd"]

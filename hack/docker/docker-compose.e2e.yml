@@ -4,8 +4,8 @@ services:
   # Debian-based daemons
   daemon-debian-1:
     build:
-      context: .
-      dockerfile: Dockerfile.debian
+      context: ../..
+      dockerfile: hack/docker/Dockerfile.debian
     container_name: sandd-daemon-debian-1
     command: >
       --server-url ws://host.docker.internal:8765/ws
@@ -26,8 +26,8 @@ services:
 
   daemon-debian-2:
     build:
-      context: .
-      dockerfile: Dockerfile.debian
+      context: ../..
+      dockerfile: hack/docker/Dockerfile.debian
     container_name: sandd-daemon-debian-2
     command: >
       --server-url ws://host.docker.internal:8765/ws
@@ -49,8 +49,8 @@ services:
   # Alpine-based daemons
   daemon-alpine-1:
     build:
-      context: .
-      dockerfile: Dockerfile.alpine
+      context: ../..
+      dockerfile: hack/docker/Dockerfile.alpine
     container_name: sandd-daemon-alpine-1
     command: >
       --server-url ws://host.docker.internal:8765/ws
@@ -71,8 +71,8 @@ services:
 
   daemon-alpine-2:
     build:
-      context: .
-      dockerfile: Dockerfile.alpine
+      context: ../..
+      dockerfile: hack/docker/Dockerfile.alpine
     container_name: sandd-daemon-alpine-2
     command: >
       --server-url ws://host.docker.internal:8765/ws
@@ -94,8 +94,8 @@ services:
   # Rocky Linux-based daemons
   daemon-rocky-1:
     build:
-      context: .
-      dockerfile: Dockerfile.rocky
+      context: ../..
+      dockerfile: hack/docker/Dockerfile.rocky
     container_name: sandd-daemon-rocky-1
     command: >
       --server-url ws://host.docker.internal:8765/ws
@@ -116,8 +116,8 @@ services:
 
   daemon-rocky-2:
     build:
-      context: .
-      dockerfile: Dockerfile.rocky
+      context: ../..
+      dockerfile: hack/docker/Dockerfile.rocky
     container_name: sandd-daemon-rocky-2
     command: >
       --server-url ws://host.docker.internal:8765/ws

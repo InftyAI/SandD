@@ -10,8 +10,8 @@ help:
 	@echo "  make build          - Build Python package (debug mode)"
 	@echo "  make install        - Install Python package locally"
 	@echo "  make dev            - Install in development mode with hot reload"
-	@echo "  make test           - Run unit and integration tests"
-	@echo "  make test-e2e       - Run end-to-end tests with Docker"
+	@echo "  make test           - Run unit and integration tests (fast, no Docker)"
+	@echo "  make test-e2e       - Run end-to-end tests with Docker (slow)"
 	@echo "  make daemon-build   - Build daemon binary (debug)"
 	@echo "  make daemon-release - Build daemon binary (release)"
 	@echo "  make docker-build   - Build Docker image for daemon"
@@ -34,8 +34,8 @@ test: lint $(PYTEST) dev
 	@echo "Running Rust tests (server protocol)..."
 	cargo test --package sandbox-server --lib
 	@echo ""
-	@echo "Running Python tests..."
-	$(PYTEST) python/tests/
+	@echo "Running Python tests (excluding e2e)..."
+	$(PYTEST) python/tests/ -m "not e2e"
 
 daemon-build:
 	cargo build --package sandd
@@ -53,22 +53,22 @@ clean:
 
 test-e2e: $(PYTEST) dev
 	@echo "Building Docker images..."
-	docker compose -f docker-compose.e2e.yml build
+	docker compose -f hack/docker/docker-compose.e2e.yml build
 	@echo ""
 	@echo "Running E2E tests with Docker..."
-	$(PYTEST) python/tests/test_e2e.py -v -s
+	$(PYTEST) python/tests/ -m e2e -v -s
 	@echo ""
 	@echo "Cleaning up containers..."
-	docker compose -f docker-compose.e2e.yml down
+	docker compose -f hack/docker/docker-compose.e2e.yml down
 
 docker-build:
-	docker compose -f docker-compose.e2e.yml build
+	docker compose -f hack/docker/docker-compose.e2e.yml build
 
 docker-up:
-	docker compose -f docker-compose.e2e.yml up -d
+	docker compose -f hack/docker/docker-compose.e2e.yml up -d
 
 docker-down:
-	docker compose -f docker-compose.e2e.yml down
+	docker compose -f hack/docker/docker-compose.e2e.yml down
 
 .PHONY: lint
 lint: $(RUFF)

@@ -6,6 +6,7 @@ mod protocol;
 mod registry;
 mod server;
 
+use anyhow::Context;
 use pyo3::exceptions::{PyRuntimeError, PyTimeoutError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -21,6 +22,28 @@ use protocol::Message;
 use registry::DaemonRegistry;
 use server::SandboxServer;
 
+/// Tunnel configuration
+#[pyclass]
+#[derive(Clone)]
+pub struct TunnelConfig {
+    #[pyo3(get, set)]
+    pub authkey: String,
+    #[pyo3(get, set)]
+    pub server: String,
+}
+
+#[pymethods]
+impl TunnelConfig {
+    #[new]
+    fn new(authkey: String, server: String) -> Self {
+        Self { authkey, server }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("TunnelConfig(server={})", self.server)
+    }
+}
+
 /// Python wrapper for the Rust server
 #[pyclass]
 pub struct Server {
@@ -32,8 +55,36 @@ pub struct Server {
 #[pymethods]
 impl Server {
     #[new]
-    #[pyo3(signature = (host="0.0.0.0".to_string(), port=8765, verbose=true))]
-    fn new(host: String, port: u16, verbose: bool) -> PyResult<Self> {
+    #[pyo3(signature = (
+        host="0.0.0.0".to_string(),
+        port=8765,
+        verbose=true,
+        connect="direct".to_string(),
+        tunnel_config=None
+    ))]
+    fn new(
+        py: Python,
+        host: String,
+        port: u16,
+        verbose: bool,
+        connect: String,
+        tunnel_config: Option<Py<TunnelConfig>>,
+    ) -> PyResult<Self> {
+        // Validate connect parameter
+        if connect != "direct" && connect != "tunnel" {
+            return Err(PyValueError::new_err(format!(
+                "connect must be 'direct' or 'tunnel', got '{}'",
+                connect
+            )));
+        }
+
+        // Validate tunnel parameters
+        if connect == "tunnel" && tunnel_config.is_none() {
+            return Err(PyValueError::new_err(
+                "tunnel mode requires tunnel_config parameter",
+            ));
+        }
+
         // Initialize logging: INFO by default, unless verbose=False
         // RUST_LOG env var can override (e.g., RUST_LOG=debug)
         if verbose {
@@ -48,7 +99,38 @@ impl Server {
         let runtime = Runtime::new()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to create runtime: {}", e)))?;
 
-        let bind_addr = format!("{}:{}", host, port);
+        // Handle tunnel mode
+        let bind_addr = if connect == "tunnel" {
+            let config_py = tunnel_config.unwrap();
+            let config = config_py.borrow(py).clone();
+
+            // Setup tunnel
+            runtime.block_on(async {
+                setup_tunnel_controller(&config)
+                    .await
+                    .map_err(|e| PyRuntimeError::new_err(format!("Tunnel setup failed: {}", e)))
+            })?;
+
+            // Get mesh IP (for logging only)
+            let mesh_ip = runtime.block_on(async {
+                get_mesh_ip()
+                    .await
+                    .map_err(|e| PyRuntimeError::new_err(format!("Failed to get mesh IP: {}", e)))
+            })?;
+
+            tracing::info!(
+                "Controller mesh IP: {} (binding to 0.0.0.0:{})",
+                mesh_ip,
+                port
+            );
+
+            // Bind to 0.0.0.0 instead of mesh IP
+            // Tailscale will route traffic to this port through the mesh
+            format!("0.0.0.0:{}", port)
+        } else {
+            format!("{}:{}", host, port)
+        };
+
         let server = SandboxServer::new(bind_addr);
         let registry = server.registry();
 
@@ -402,11 +484,93 @@ pub struct PyStats {
     pub oldest_connection_secs: u64,
 }
 
+/// Setup tunnel for controller
+async fn setup_tunnel_controller(config: &TunnelConfig) -> anyhow::Result<()> {
+    use std::process::Command;
+
+    // Check if tailscale is installed by trying to run it
+    let tailscale_check = Command::new("tailscale").arg("version").output();
+
+    if tailscale_check.is_err() {
+        return Err(anyhow::anyhow!(
+            "Tailscale not found. Install it first:\n  \
+            curl -fsSL https://tailscale.com/install.sh | sh"
+        ));
+    }
+
+    tracing::info!("Starting tailscaled...");
+
+    // Start tailscaled in background (if not already running)
+    let _tailscaled = Command::new("tailscaled")
+        .arg("--tun=userspace-networking")
+        .arg("--state=/var/lib/tailscale/tailscaled.state")
+        .spawn()
+        .context("Failed to start tailscaled")?;
+
+    // Give tailscaled time to start
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    tracing::info!("Joining mesh network...");
+
+    // Join mesh
+    let output = Command::new("tailscale")
+        .arg("up")
+        .arg(format!("--authkey={}", config.authkey))
+        .arg(format!("--login-server={}", config.server))
+        .arg("--accept-routes")
+        .output()?;
+
+    if !output.status.success() {
+        return Err(anyhow::anyhow!(
+            "Failed to join mesh: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    // Wait for IP assignment
+    for _ in 0..30 {
+        let ip_output = Command::new("tailscale").arg("ip").arg("-4").output();
+
+        if let Ok(output) = ip_output {
+            if output.status.success() {
+                let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !ip.is_empty() {
+                    tracing::info!("✓ Controller joined mesh network with IP: {}", ip);
+                    return Ok(());
+                }
+            }
+        }
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+
+    Err(anyhow::anyhow!("Timeout waiting for mesh IP assignment"))
+}
+
+/// Get mesh IP address
+async fn get_mesh_ip() -> anyhow::Result<String> {
+    use std::process::Command;
+
+    let output = Command::new("tailscale").arg("ip").arg("-4").output()?;
+
+    if !output.status.success() {
+        return Err(anyhow::anyhow!("Failed to get mesh IP"));
+    }
+
+    let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if ip.is_empty() {
+        return Err(anyhow::anyhow!("No mesh IP assigned"));
+    }
+
+    Ok(ip)
+}
+
 /// Python module
 #[pymodule]
 fn _core(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Server>()?;
     m.add_class::<Session>()?;
+    m.add_class::<TunnelConfig>()?;
     m.add_class::<PyCommandResult>()?;
     m.add_class::<PyDaemonInfo>()?;
     m.add_class::<PyStats>()?;

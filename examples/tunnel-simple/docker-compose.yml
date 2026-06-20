@@ -1,0 +1,124 @@
+version: '3.8'
+
+# Simple tunnel mode example with Headscale
+#
+# IMPORTANT: Start services in this order:
+# 1. docker-compose up -d headscale
+# 2. Generate auth key: docker exec tunnel-simple-headscale-1 headscale preauthkeys create --user sandd
+# 3. export SANDD_TUNNEL_AUTH_KEY=<key-from-step-2>
+# 4. docker-compose up -d app
+#
+# See README.md for detailed instructions.
+
+services:
+  # Headscale coordination server
+  headscale:
+    image: headscale/headscale:0.23
+    command: serve
+    volumes:
+      - ./headscale-config.yaml:/etc/headscale/config.yaml:ro
+      - headscale-data:/var/lib/headscale
+    ports:
+      - "8080:8080"
+      - "50443:50443"
+    networks:
+      - sandd
+    environment:
+      - TZ=UTC
+
+  # Your application using SandD with tunnel
+  app:
+    hostname: controller
+    build:
+      context: ../..
+      dockerfile: hack/docker/Dockerfile.tunnel
+    command:
+      - /bin/bash
+      - -c
+      - |
+        python3 << 'PYEOF'
+        import os
+        from sandd import Server, TunnelConfig
+        import time
+
+        config = TunnelConfig(
+            authkey=os.environ["SANDD_TUNNEL_AUTH_KEY"],
+            server="http://headscale:8080"
+        )
+
+        print("Starting controller in tunnel mode...")
+        server = Server(connect="tunnel", tunnel_config=config)
+        print("Controller ready! Waiting for daemons...")
+
+        while True:
+            daemons = server.list_daemons()
+            for daemon in daemons:
+                result = server.exec(daemon.id, "hostname")
+                print(f"{daemon.id}: {result.stdout.strip()}")
+
+            time.sleep(10)
+        PYEOF
+    environment:
+      - SANDD_TUNNEL_AUTH_KEY=${SANDD_TUNNEL_AUTH_KEY:-}
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    depends_on:
+      - headscale
+    networks:
+      - sandd
+
+  # Daemon worker (connects to controller via mesh)
+  daemon:
+    build:
+      context: ../..
+      dockerfile: hack/docker/Dockerfile.daemon-tunnel
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        echo "Starting Tailscale daemon..."
+
+        # Start tailscaled in background
+        tailscaled --tun=userspace-networking --state=/var/lib/tailscale/tailscaled.state &
+        sleep 3
+
+        # Join mesh network
+        echo "Joining mesh network..."
+        tailscale up \
+          --authkey=${SANDD_TUNNEL_AUTH_KEY:-} \
+          --login-server=http://headscale:8080 \
+          --accept-routes
+
+        # Wait for mesh to stabilize
+        echo "Waiting for mesh..."
+        MY_IP=$$(tailscale ip -4)
+        echo "My mesh IP: $$MY_IP"
+        sleep 5
+
+        # Use MagicDNS hostname to connect to controller
+        CONTROLLER_HOST="controller"
+        echo "Connecting to controller via MagicDNS: $$CONTROLLER_HOST"
+
+        # Start daemon (MagicDNS will resolve hostname to IP)
+        exec sandd --server-url=ws://$$CONTROLLER_HOST:8765/ws \
+          --daemon-id=worker-1
+    environment:
+      - RUST_LOG=info
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    depends_on:
+      - headscale
+      - app
+    networks:
+      - sandd
+
+volumes:
+  headscale-data:
+
+networks:
+  sandd:
+    driver: bridge

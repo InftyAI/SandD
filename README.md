@@ -75,12 +75,24 @@ make install
 
 ### Daemon Binary (Worker)
 
-Install from crates.io:
+#### Quick Install
+
+```bash
+# Direct mode (no tunnel)
+curl -fsSL https://get.sandd.dev/install.sh | sudo bash
+
+# Tunnel mode (with Tailscale)
+curl -fsSL https://get.sandd.dev/install.sh | sudo bash -s -- --tunnel
+```
+
+#### Alternative Methods
+
+**Install from crates.io:**
 ```bash
 cargo install sandd
 ```
 
-Or build from source:
+**Build from source:**
 ```bash
 git clone https://github.com/InftyAI/SandD
 cd SandD
@@ -90,23 +102,49 @@ make daemon-release
 
 ## Quick Start
 
+### Direct Mode (Development)
+
 **Start controller:**
 
 ```python
 from sandd import Server
 
-server = Server("0.0.0.0", 8765)
+server = Server()  # Direct mode (default)
 server.wait_for_daemon("worker-1", timeout=30)
 
 result = server.exec("worker-1", "hostname")
 print(result.stdout)
 ```
 
-**Start worker:**
+**Start daemon:**
 
 ```bash
+# Direct mode
 sandd --server-url ws://controller-ip:8765/ws --daemon-id worker-1
+
+# Tunnel mode
+sandd --server-url ws://10.200.0.1:8765/ws \
+      --daemon-id worker-1 \
+      --tunnel \
+      --tunnel-authkey YOUR_KEY \
+      --tunnel-server http://headscale:8080
 ```
+
+### Tunnel Mode (Production)
+
+For secure multi-cloud deployments with mesh VPN:
+
+```python
+from sandd import Server
+
+config = TunnelConfig(
+    authkey="YOUR_KEY",
+    server="http://headscale:8080",
+)
+server = Server(connect="tunnel", tunnel_config=config)  # Secure tunnel mode
+```
+
+See [Tunnel Mode Guide](./docs/TUNNEL.md) for setup instructions.
 
 ## Documentation
 
