@@ -19,6 +19,7 @@ Rust-powered WebSocket server with Python API for remote command execution and i
 - **Command Execution** - Run shell commands on remote machines with timeout control
 - **Interactive Sessions** - Full PTY sessions with bash for manual work
 - **File Transfer** - Upload/download files between controller and workers
+- **Tunnel Mode (VPN)** - Secure mesh networking with WireGuard encryption via Tailscale
 - **High Performance** - Rust async runtime handles high-concurrency workloads
 - **Auto Reconnection** - Workers reconnect automatically on network failures
 - **Cross-Platform** - Linux, macOS, Windows support
@@ -46,8 +47,8 @@ Rust-powered WebSocket server with Python API for remote command execution and i
 │  └────────────────────────────────────┘  │
 └──────────────────────────────────────────┘
                      ▲
-                     │ WebSocket (WSS)
-                     │ (Daemon initiates connection)
+                     │ WebSocket
+                     │ (ws:// in direct mode, encrypted via VPN in tunnel mode)
                      │
            ┌─────────┼─────────┐
            │         │         │
@@ -132,16 +133,19 @@ sandd --server-url ws://10.200.0.1:8765/ws \
 
 ### Tunnel Mode (Production)
 
-For secure multi-cloud deployments with mesh VPN:
+For secure multi-cloud deployments with mesh VPN (no TLS setup needed):
 
 ```python
-from sandd import Server
+from sandd import Server, TunnelConfig
 
 config = TunnelConfig(
     authkey="YOUR_KEY",
     server="http://headscale:8080",
 )
-server = Server(connect="tunnel", tunnel_config=config)  # Secure tunnel mode
+server = Server(connect="tunnel", tunnel_config=config)
+# ✓ Encrypted with WireGuard (no TLS needed)
+# ✓ Works across NAT/firewalls
+# ✓ No public IPs required
 ```
 
 See [Tunnel Mode Guide](./docs/TUNNEL.md) for setup instructions.
@@ -154,20 +158,8 @@ See [Tunnel Mode Guide](./docs/TUNNEL.md) for setup instructions.
 - [Development Guide](./docs/DEVELOP.md)
 - [Examples](./examples)
 
-## Security
-
-⚠️ **Add security layers for production use:**
-
-- Use `wss://` (TLS) instead of plain `ws://`
-- Add authentication (tokens, mTLS)
-- Run workers in containers
-- Validate commands before execution
-- Audit log all commands
-
 ## Roadmap
 
-- [ ] **Authentication** - Token-based auth for daemon connections
-- [ ] **TLS Support** - Built-in WSS with certificate management
 - [ ] **Audit Logging** - Track all commands, sessions, and file transfers
 - [ ] **Metrics** - Prometheus-compatible metrics for monitoring
 - [ ] **Resource Limits** - CPU/memory/timeout controls per daemon
