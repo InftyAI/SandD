@@ -1,11 +1,16 @@
 """End-to-end tests with Docker containers
 
 Run with: make test-e2e
+
+These tests are marked as 'e2e' and skipped by default in 'make test'.
+Use 'make test-e2e' to run them explicitly.
 """
 import pytest
 import time
 import subprocess
 from sandd import Server
+
+pytestmark = pytest.mark.e2e
 
 
 @pytest.fixture(scope="module")
