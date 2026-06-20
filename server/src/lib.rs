@@ -6,6 +6,7 @@ mod protocol;
 mod registry;
 mod server;
 
+use anyhow::Context;
 use pyo3::exceptions::{PyRuntimeError, PyTimeoutError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -62,23 +63,25 @@ impl Server {
         tunnel_config=None
     ))]
     fn new(
+        py: Python,
         host: String,
         port: u16,
         verbose: bool,
         connect: String,
-        tunnel_config: Option<TunnelConfig>,
+        tunnel_config: Option<Py<TunnelConfig>>,
     ) -> PyResult<Self> {
         // Validate connect parameter
         if connect != "direct" && connect != "tunnel" {
-            return Err(PyValueError::new_err(
-                format!("connect must be 'direct' or 'tunnel', got '{}'", connect)
-            ));
+            return Err(PyValueError::new_err(format!(
+                "connect must be 'direct' or 'tunnel', got '{}'",
+                connect
+            )));
         }
 
         // Validate tunnel parameters
         if connect == "tunnel" && tunnel_config.is_none() {
             return Err(PyValueError::new_err(
-                "tunnel mode requires tunnel_config parameter"
+                "tunnel mode requires tunnel_config parameter",
             ));
         }
 
@@ -98,21 +101,28 @@ impl Server {
 
         // Handle tunnel mode
         let bind_addr = if connect == "tunnel" {
-            let config = tunnel_config.unwrap();
+            let config_py = tunnel_config.unwrap();
+            let config = config_py.borrow(py).clone();
 
             // Setup tunnel
             runtime.block_on(async {
-                setup_tunnel_controller(&config).await
+                setup_tunnel_controller(&config)
+                    .await
                     .map_err(|e| PyRuntimeError::new_err(format!("Tunnel setup failed: {}", e)))
             })?;
 
             // Get mesh IP (for logging only)
             let mesh_ip = runtime.block_on(async {
-                get_mesh_ip().await
+                get_mesh_ip()
+                    .await
                     .map_err(|e| PyRuntimeError::new_err(format!("Failed to get mesh IP: {}", e)))
             })?;
 
-            tracing::info!("Controller mesh IP: {} (binding to 0.0.0.0:{})", mesh_ip, port);
+            tracing::info!(
+                "Controller mesh IP: {} (binding to 0.0.0.0:{})",
+                mesh_ip,
+                port
+            );
 
             // Bind to 0.0.0.0 instead of mesh IP
             // Tailscale will route traffic to this port through the mesh
@@ -478,12 +488,10 @@ pub struct PyStats {
 async fn setup_tunnel_controller(config: &TunnelConfig) -> anyhow::Result<()> {
     use std::process::Command;
 
-    // Check if tailscale is installed
-    let tailscale_check = Command::new("which")
-        .arg("tailscale")
-        .output();
+    // Check if tailscale is installed by trying to run it
+    let tailscale_check = Command::new("tailscale").arg("version").output();
 
-    if tailscale_check.is_err() || !tailscale_check.unwrap().status.success() {
+    if tailscale_check.is_err() {
         return Err(anyhow::anyhow!(
             "Tailscale not found. Install it first:\n  \
             curl -fsSL https://tailscale.com/install.sh | sh"
@@ -496,7 +504,8 @@ async fn setup_tunnel_controller(config: &TunnelConfig) -> anyhow::Result<()> {
     let _tailscaled = Command::new("tailscaled")
         .arg("--tun=userspace-networking")
         .arg("--state=/var/lib/tailscale/tailscaled.state")
-        .spawn();
+        .spawn()
+        .context("Failed to start tailscaled")?;
 
     // Give tailscaled time to start
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -520,10 +529,7 @@ async fn setup_tunnel_controller(config: &TunnelConfig) -> anyhow::Result<()> {
 
     // Wait for IP assignment
     for _ in 0..30 {
-        let ip_output = Command::new("tailscale")
-            .arg("ip")
-            .arg("-4")
-            .output();
+        let ip_output = Command::new("tailscale").arg("ip").arg("-4").output();
 
         if let Ok(output) = ip_output {
             if output.status.success() {
@@ -545,10 +551,7 @@ async fn setup_tunnel_controller(config: &TunnelConfig) -> anyhow::Result<()> {
 async fn get_mesh_ip() -> anyhow::Result<String> {
     use std::process::Command;
 
-    let output = Command::new("tailscale")
-        .arg("ip")
-        .arg("-4")
-        .output()?;
+    let output = Command::new("tailscale").arg("ip").arg("-4").output()?;
 
     if !output.status.success() {
         return Err(anyhow::anyhow!("Failed to get mesh IP"));

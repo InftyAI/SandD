@@ -4,7 +4,7 @@ These tests verify the Python API without requiring real daemon connections.
 For integration tests with real daemons, see test_integration.py
 """
 import pytest
-from sandd import Server, ServerStats
+from sandd import Server, ServerStats, TunnelConfig
 
 
 class TestServerAPI:
@@ -97,6 +97,61 @@ class TestServerStats:
         repr_str = repr(stats)
         assert "ServerStats" in repr_str
         assert "total=" in repr_str
+
+
+class TestTunnelMode:
+    """Test tunnel mode validation"""
+
+    def test_invalid_connect_mode(self):
+        """Test that invalid connect parameter raises ValueError"""
+        with pytest.raises(ValueError, match="connect must be 'direct' or 'tunnel'"):
+            Server(connect="invalid")
+
+    def test_tunnel_mode_without_config(self):
+        """Test that tunnel mode without config raises ValueError"""
+        with pytest.raises(ValueError, match="tunnel mode requires tunnel_config"):
+            Server(connect="tunnel")
+
+    def test_tunnel_mode_with_none_config(self):
+        """Test that tunnel mode with None config raises ValueError"""
+        with pytest.raises(ValueError, match="tunnel mode requires tunnel_config"):
+            Server(connect="tunnel", tunnel_config=None)
+
+    def test_direct_mode_explicit(self):
+        """Test that direct mode can be explicitly specified"""
+        server = Server(connect="direct")
+        assert server.address == "0.0.0.0:8765"
+
+    def test_direct_mode_ignores_tunnel_config(self):
+        """Test that direct mode ignores tunnel_config parameter"""
+        config = TunnelConfig(authkey="test-key", server="http://test:8080")
+        server = Server(connect="direct", tunnel_config=config)
+        assert server.address == "0.0.0.0:8765"
+
+
+class TestTunnelConfig:
+    """Test TunnelConfig class"""
+
+    def test_create_config(self):
+        """Test creating TunnelConfig"""
+        config = TunnelConfig(authkey="test-key", server="http://localhost:8080")
+        assert config.authkey == "test-key"
+        assert config.server == "http://localhost:8080"
+
+    def test_config_repr(self):
+        """Test TunnelConfig string representation"""
+        config = TunnelConfig(authkey="key-123", server="http://headscale:8080")
+        repr_str = repr(config)
+        assert "TunnelConfig" in repr_str
+        assert "http://headscale:8080" in repr_str
+
+    def test_config_mutable(self):
+        """Test that TunnelConfig attributes can be modified"""
+        config = TunnelConfig(authkey="old-key", server="http://old:8080")
+        config.authkey = "new-key"
+        config.server = "http://new:8080"
+        assert config.authkey == "new-key"
+        assert config.server == "http://new:8080"
 
 
 class TestErrorHandling:

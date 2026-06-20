@@ -137,7 +137,11 @@ For secure multi-cloud deployments with mesh VPN:
 ```python
 from sandd import Server
 
-server = Server(connect="tunnel")  # Secure tunnel mode
+config = TunnelConfig(
+    authkey="YOUR_KEY",
+    server="http://headscale:8080",
+)
+server = Server(connect="tunnel", tunnel_config=config)  # Secure tunnel mode
 ```
 
 See [Tunnel Mode Guide](./docs/TUNNEL.md) for setup instructions.

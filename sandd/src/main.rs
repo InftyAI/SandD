@@ -2,7 +2,7 @@ mod executor;
 mod protocol;
 mod session;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use executor::CommandExecutor;
 use futures_util::{SinkExt, StreamExt};
@@ -467,10 +467,10 @@ async fn setup_tunnel(args: &Args) -> Result<()> {
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("--tunnel requires --tunnel-server"))?;
 
-    // Check if tailscale is installed
-    let tailscale_check = Command::new("which").arg("tailscale").output();
+    // Check if tailscale is installed by trying to run it
+    let tailscale_check = Command::new("tailscale").arg("version").output();
 
-    if tailscale_check.is_err() || !tailscale_check.unwrap().status.success() {
+    if tailscale_check.is_err() {
         return Err(anyhow::anyhow!(
             "Tailscale not found. Install it first:\n  \
             curl -fsSL https://raw.githubusercontent.com/InftyAI/SandD/main/hack/scripts/install.sh | sudo bash -s -- --tunnel"
@@ -483,7 +483,8 @@ async fn setup_tunnel(args: &Args) -> Result<()> {
     let _tailscaled = Command::new("tailscaled")
         .arg("--tun=userspace-networking")
         .arg("--state=/var/lib/tailscale/tailscaled.state")
-        .spawn();
+        .spawn()
+        .context("Failed to start tailscaled")?;
 
     // Give tailscaled time to start
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -496,7 +497,8 @@ async fn setup_tunnel(args: &Args) -> Result<()> {
         .arg(format!("--authkey={}", authkey))
         .arg(format!("--login-server={}", server))
         .arg("--accept-routes")
-        .output()?;
+        .output()
+        .context("Failed to join mesh network")?;
 
     if !output.status.success() {
         return Err(anyhow::anyhow!(
