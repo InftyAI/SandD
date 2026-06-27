@@ -264,59 +264,29 @@ where
             env,
             cwd,
         } => {
-            // Check for in-tree commands (sandd_* prefix)
-            if let Some(intree_cmd) = command.strip_prefix("sandd_") {
-                debug!("Handling in-tree command: {}", intree_cmd);
+            // Execute command directly via shell
+            debug!("Executing command: {}", command);
+            let result = executor.execute(&command, timeout_secs, env, cwd).await;
 
-                let start = std::time::Instant::now();
-                let result = handle_intree_command(intree_cmd).await;
-                let duration_ms = start.elapsed().as_millis() as u64;
+            let response = match result {
+                Ok(output) => Message::CommandOutput {
+                    request_id,
+                    stdout: output.stdout,
+                    stderr: output.stderr,
+                    exit_code: output.exit_code,
+                    duration_ms: output.duration_ms,
+                },
+                Err(e) => Message::CommandError {
+                    request_id,
+                    error: e.to_string(),
+                },
+            };
 
-                let response = match result {
-                    Ok(output) => Message::CommandOutput {
-                        request_id,
-                        stdout: output,
-                        stderr: String::new(),
-                        exit_code: 0,
-                        duration_ms,
-                    },
-                    Err(e) => Message::CommandOutput {
-                        request_id,
-                        stdout: String::new(),
-                        stderr: format!("In-tree command error: {}", e),
-                        exit_code: 1,
-                        duration_ms,
-                    },
-                };
-
-                let json = serde_json::to_string(&response)?;
-                let mut tx = ws_tx.lock().await;
-                tx.send(WsMessage::Text(json)).await?
-            } else {
-                // Normal shell execution
-                debug!("Executing command: {}", command);
-                let result = executor.execute(&command, timeout_secs, env, cwd).await;
-
-                let response = match result {
-                    Ok(output) => Message::CommandOutput {
-                        request_id,
-                        stdout: output.stdout,
-                        stderr: output.stderr,
-                        exit_code: output.exit_code,
-                        duration_ms: output.duration_ms,
-                    },
-                    Err(e) => Message::CommandError {
-                        request_id,
-                        error: e.to_string(),
-                    },
-                };
-
-                let json = serde_json::to_string(&response)?;
-                let mut tx = ws_tx.lock().await;
-                tx.send(WsMessage::Text(json))
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{}", e))?;
-            }
+            let json = serde_json::to_string(&response)?;
+            let mut tx = ws_tx.lock().await;
+            tx.send(WsMessage::Text(json))
+                .await
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
         }
 
         Message::NewSession {
@@ -445,12 +415,6 @@ where
     }
 
     Ok(())
-}
-
-async fn handle_intree_command(cmd: &str) -> Result<String> {
-    match cmd {
-        _ => Err(anyhow::anyhow!("Unknown in-tree command: {}", cmd)),
-    }
 }
 
 async fn setup_tunnel(args: &Args) -> Result<()> {
