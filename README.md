@@ -148,13 +148,14 @@ server = Server(connect="tunnel", tunnel_config=config)
 # ✓ No public IPs required
 ```
 
-See [Tunnel Mode Guide](./docs/TUNNEL.md) for setup instructions.
+See [Tunnel Mode Guide](./docs/proposals/TUNNEL.md) for setup instructions.
 
 ## Documentation
 
 - [Quick Start Guide](./docs/QUICKSTART.md)
 - [Architecture Details](./docs/ARCHITECTURE.md)
-- [Protocol Specification](./docs/PROTOCOL.md)
+- [Protocol Specification](./docs/proposals/PROTOCOL.md)
+- [Tunnel Mode Guide](./docs/proposals/TUNNEL.md)
 - [Development Guide](./docs/DEVELOP.md)
 - [Examples](./examples)
 

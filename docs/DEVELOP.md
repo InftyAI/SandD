@@ -310,7 +310,7 @@ Include motivation and context.
 
 WebSocket-based JSON protocol for agent-daemon communication.
 
-For complete protocol specification, see [PROTOCOL.md](PROTOCOL.md).
+For complete protocol specification, see [proposals/PROTOCOL.md](proposals/PROTOCOL.md).
 
 ## Resources
 
@@ -322,6 +322,6 @@ For complete protocol specification, see [PROTOCOL.md](PROTOCOL.md).
 ## Questions?
 
 - Check [ARCHITECTURE.md](ARCHITECTURE.md) for design details
-- Check [PROTOCOL.md](PROTOCOL.md) for protocol specification
+- Check [proposals/PROTOCOL.md](proposals/PROTOCOL.md) for protocol specification
 - Check [STATUS.md](STATUS.md) for implementation status
 - Check [QUICKSTART.md](QUICKSTART.md) for usage examples
