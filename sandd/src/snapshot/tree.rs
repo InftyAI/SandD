@@ -18,11 +18,12 @@ pub struct TreeEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum EntryType {
-    Blob,      // File content (blob object)
-    Tree,      // Subdirectory (tree object)
-    Symlink,   // Symbolic link (blob object storing target path)
+    Blob,        // File content (blob object)
+    Tree,        // Subdirectory (tree object)
+    Symlink,     // Symlink to file (blob object storing target path)
+    SymlinkDir,  // Symlink to directory (blob object storing target path)
 }
 
 // Helper module for SystemTime serialization

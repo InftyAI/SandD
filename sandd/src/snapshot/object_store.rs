@@ -193,8 +193,13 @@ mod tests {
         let path = store.hash_to_path(hash).unwrap();
 
         // Should create subdirectory based on first 2 chars
-        assert!(path.to_string_lossy().contains("/ab/"));
-        assert!(path.to_string_lossy().contains("c123def456789"));
+        // Use path components instead of string matching (cross-platform)
+        let components: Vec<_> = path.components().collect();
+
+        // Path should be: <root>/objects/ab/c123def456789
+        assert!(components.len() >= 3);
+        assert_eq!(components[components.len() - 2].as_os_str(), "ab");
+        assert_eq!(components[components.len() - 1].as_os_str(), "c123def456789");
     }
 
     #[test]

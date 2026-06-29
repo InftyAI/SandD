@@ -147,8 +147,8 @@ impl SnapshotManager {
     pub async fn create_snapshot(
         &self,
         workspace: &Path,
-        message: String,
-        tags: Vec<String>,
+        message: Option<String>,
+        tags: Option<Vec<String>>,
     ) -> Result<String>;  // Returns snapshot ID
 
     /// Restore snapshot to destination
@@ -158,14 +158,20 @@ impl SnapshotManager {
         destination: &Path,
     ) -> Result<()>;
 
-    /// List all snapshots
-    pub async fn list_snapshots(&self) -> Result<Vec<Snapshot>>;
+    /// List all snapshots (optionally filtered by tags)
+    pub async fn list_snapshots(
+        &self,
+        filter_tags: Option<Vec<String>>,
+    ) -> Result<Vec<SnapshotInfo>>;
 
-    /// Delete snapshot and orphaned objects
+    /// Find snapshots by tag
+    pub async fn find_by_tag(&self, tag: &str) -> Result<Vec<SnapshotInfo>>;
+
+    /// Get snapshot by ID
+    pub async fn get_snapshot(&self, id: &str) -> Result<Snapshot>;
+
+    /// Delete snapshot
     pub async fn delete_snapshot(&self, id: &str) -> Result<()>;
-
-    /// Garbage collect unreferenced objects
-    pub async fn gc(&self) -> Result<GcStats>;
 }
 ```
 
@@ -226,20 +232,27 @@ async fn main() -> Result<()> {
         PathBuf::from("/var/sandd/snapshots")
     )?;
 
-    // Create snapshot
+    // Create snapshot with optional message and tags
     let snapshot_id = manager.create_snapshot(
         Path::new("/workspace/agent-123"),
-        "Before task execution".to_string(),
-        vec!["pre-task".to_string()],
+        Some("Before task execution".to_string()),
+        Some(vec!["pre-task".to_string()]),
     ).await?;
 
     println!("Created snapshot: {}", snapshot_id);
 
-    // List snapshots
-    let snapshots = manager.list_snapshots().await?;
+    // List all snapshots
+    let snapshots = manager.list_snapshots(None).await?;
     for snap in snapshots {
         println!("{}: {} (tags: {:?})", snap.id, snap.message, snap.tags);
     }
+
+    // Find snapshots by tag
+    let pre_task_snapshots = manager.find_by_tag("pre-task").await?;
+
+    // Get specific snapshot details
+    let snapshot = manager.get_snapshot(&snapshot_id).await?;
+    println!("Files: {}, Size: {} bytes", snapshot.file_count, snapshot.total_size);
 
     // Restore if needed
     manager.restore_snapshot(

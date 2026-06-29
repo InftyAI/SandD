@@ -80,10 +80,34 @@ impl SnapshotManager {
             let mut read_dir = fs::read_dir(dir).await?;
             while let Some(entry) = read_dir.next_entry().await? {
                 let path = entry.path();
-                let metadata = entry.metadata().await?;
+                // Use symlink_metadata to NOT follow symlinks
+                let metadata = fs::symlink_metadata(&path).await?;
                 let name = entry.file_name().to_string_lossy().to_string();
 
-                let (entry_type, hash, size, _sub_count) = if metadata.is_file() {
+                let (entry_type, hash, size, _sub_count) = if metadata.is_symlink() {
+                    // Check symlink FIRST (before is_file/is_dir which would follow the link)
+                    // Store symlink target as blob object
+                    let target = fs::read_link(&path).await?;
+                    let target_bytes = target.to_string_lossy().as_bytes().to_vec();
+                    let hash = self.store.put_blob(&target_bytes).await?;
+                    file_count += 1;
+
+                    // Determine symlink type (for Windows symlink restoration)
+                    let target_is_dir = if target.is_absolute() {
+                        target.is_dir()
+                    } else {
+                        // Relative path - resolve relative to parent
+                        path.parent().map(|p| p.join(&target).is_dir()).unwrap_or(false)
+                    };
+
+                    let symlink_type = if target_is_dir {
+                        EntryType::SymlinkDir
+                    } else {
+                        EntryType::Symlink
+                    };
+
+                    (symlink_type, hash, 0, 0)
+                } else if metadata.is_file() {
                     // Store file as blob object
                     let hash = self.store.put_file(&path).await?;
                     let size = metadata.len();
@@ -96,15 +120,13 @@ impl SnapshotManager {
                     total_size += sub_size;
                     file_count += sub_count;
                     (EntryType::Tree, hash, 0, sub_count)
-                } else if metadata.is_symlink() {
-                    // Store symlink target as blob object
-                    let target = fs::read_link(&path).await?;
-                    let target_bytes = target.to_string_lossy().as_bytes().to_vec();
-                    let hash = self.store.put_blob(&target_bytes).await?;
-                    file_count += 1;
-                    (EntryType::Symlink, hash, 0, 0)
                 } else {
-                    continue; // Skip other types
+                    // Skip unsupported file types (pipes, sockets, devices, etc.)
+                    tracing::warn!(
+                        "Skipping unsupported file type: {} (not a regular file, directory, or symlink)",
+                        path.display()
+                    );
+                    continue;
                 };
 
                 entries.push(TreeEntry {
@@ -193,20 +215,28 @@ impl SnapshotManager {
                         // Recursively restore subdirectory from tree object
                         self.restore_tree(&entry.hash, &entry_path).await?;
                     }
-                    EntryType::Symlink => {
+                    EntryType::Symlink | EntryType::SymlinkDir => {
                         // Restore symlink from blob object (target path)
                         let target_bytes = self.store.get_blob(&entry.hash).await?;
                         let target = PathBuf::from(String::from_utf8(target_bytes)?);
 
+                        // Remove existing file/symlink if present (for idempotent restore)
+                        if entry_path.exists() || entry_path.is_symlink() {
+                            // Use remove_file for both files and symlinks
+                            let _ = fs::remove_file(&entry_path).await;
+                        }
+
                         #[cfg(unix)]
-                        tokio::fs::symlink(target, entry_path).await?;
+                        tokio::fs::symlink(target, &entry_path).await?;
 
                         #[cfg(windows)]
                         {
-                            if target.is_dir() {
-                                tokio::fs::symlink_dir(target, entry_path).await?;
+                            // Use EntryType to determine symlink type (stored at snapshot time)
+                            // (can't check target.is_dir() since target may not exist yet or be relative)
+                            if entry.entry_type == EntryType::SymlinkDir {
+                                tokio::fs::symlink_dir(target, &entry_path).await?;
                             } else {
-                                tokio::fs::symlink_file(target, entry_path).await?;
+                                tokio::fs::symlink_file(target, &entry_path).await?;
                             }
                         }
                     }
