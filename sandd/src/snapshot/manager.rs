@@ -1083,45 +1083,39 @@ mod tests {
         assert_eq!(snapshots[0].message, "Test");
     }
 
-    #[tokio::test]
-    async fn test_tag_path_traversal_protection() {
-        let temp_dir = TempDir::new().unwrap();
-        let store_dir = temp_dir.path().join("store");
-        let workspace = temp_dir.path().join("workspace");
+    #[test]
+    fn test_validate_tag_name() {
+        // Valid tags
+        let valid = vec!["v1.0.0", "stable", "release-2024", "tag_name", "TAG123"];
+        for tag in valid {
+            assert!(
+                SnapshotManager::validate_tag_name(tag).is_ok(),
+                "Should accept valid tag: {}",
+                tag
+            );
+        }
 
-        fs::create_dir_all(&workspace).await.unwrap();
-        fs::write(workspace.join("file.txt"), "Content")
-            .await
-            .unwrap();
-
-        let manager = SnapshotManager::new(store_dir).unwrap();
-
-        // Try path traversal attacks
-        let attacks = vec![
-            "../etc/passwd",
-            "..\\windows\\system32",
-            "/etc/passwd",
-            "C:\\windows\\system32",
-            "subdir/tag",
-            ".",
-            "..",
-            "",
-            "tag\0null",
+        // Invalid tags
+        let invalid = vec![
+            ("../etc/passwd", "path traversal"),
+            ("..\\windows\\system32", "Windows path traversal"),
+            ("/etc/passwd", "absolute path (Unix)"),
+            ("C:\\windows\\system32", "absolute path (Windows)"),
+            ("subdir/tag", "path separator (/)"),
+            ("subdir\\tag", "path separator (\\)"),
+            (".", "special name (.)"),
+            ("..", "special name (..)"),
+            ("", "empty string"),
+            ("tag\0null", "null byte"),
+            ("tag\nline", "control char (newline)"),
         ];
 
-        for attack in attacks {
-            let result = manager
-                .create_snapshot(
-                    &workspace,
-                    Some("Attack".to_string()),
-                    Some(vec![attack.to_string()]),
-                )
-                .await;
-
+        for (tag, reason) in invalid {
             assert!(
-                result.is_err(),
-                "Should reject malicious tag: {}",
-                attack
+                SnapshotManager::validate_tag_name(tag).is_err(),
+                "Should reject {}: {}",
+                reason,
+                tag
             );
         }
     }
