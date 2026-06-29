@@ -99,7 +99,7 @@ fn bench_small_files(c: &mut Criterion) {
 /// Benchmark: Large files
 ///
 /// **Purpose:** I/O throughput measurement
-/// **Tests:** Binary/media files (1MB, 10MB, 100MB)
+/// **Tests:** Binary/media files (1MB, 10MB, 20MB, 100MB)
 /// **Expected:** Should show MB/sec throughput (I/O bound)
 /// **Detects:** Buffer size issues, streaming efficiency
 fn bench_large_files(c: &mut Criterion) {
@@ -107,8 +107,15 @@ fn bench_large_files(c: &mut Criterion) {
     group.sample_size(10);
     group.measurement_time(std::time::Duration::from_secs(10));
 
-    // Files of different sizes: 1MB, 10MB, 100MB
-    for file_size in [1024 * 1024, 10 * 1024 * 1024, 100 * 1024 * 1024].iter() {
+    // Files of different sizes: 1MB, 10MB, 20MB, 100MB
+    for file_size in [
+        1024 * 1024,
+        10 * 1024 * 1024,
+        20 * 1024 * 1024,
+        100 * 1024 * 1024,
+    ]
+    .iter()
+    {
         let size_mb = file_size / (1024 * 1024);
         group.throughput(Throughput::Bytes(*file_size as u64));
 
