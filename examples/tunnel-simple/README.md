@@ -1,6 +1,6 @@
 # Tunnel Mode Example
 
-⚠️ **For Development/Testing Only** - See [production guide](../../docs/TUNNEL.md) for real deployments.
+⚠️ **For Development/Testing Only** - See [production guide](../../docs/proposals/TUNNEL.md) for real deployments.
 
 This example demonstrates tunnel mode setup with Headscale. It shows how to run the controller; you'll launch daemons separately.
 
@@ -280,6 +280,6 @@ docker logs tunnel-simple-headscale-1
 
 ## Next Steps
 
-- [Full Tunnel Guide](../../docs/TUNNEL.md)
+- [Full Tunnel Guide](../../docs/proposals/TUNNEL.md)
 - [Kubernetes Deployment](../../docs/deployment/kubernetes.md) (coming soon)
 - [Production Best Practices](../../docs/deployment/production.md) (coming soon)

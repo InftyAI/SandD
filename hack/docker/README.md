@@ -11,7 +11,7 @@ This directory contains Docker-related files for building and testing SandD.
 - **`Dockerfile.tunnel`** - Server with Tailscale (build from source)
   - Use: Development and testing
   - Build: `docker build -f hack/docker/Dockerfile.tunnel -t inftyai/sandd-server:latest-tunnel .`
-  - See: [docs/TUNNEL.md](../../docs/TUNNEL.md)
+  - See: [docs/proposals/TUNNEL.md](../../docs/proposals/TUNNEL.md)
 
 - **`Dockerfile.tunnel-release`** - Server with Tailscale (uses PyPI release)
   - Use: Production deployments
