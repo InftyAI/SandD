@@ -160,8 +160,32 @@ impl SnapshotManager {
 
                 match entry.entry_type {
                     EntryType::Blob => {
-                        // Restore file from blob object
-                        self.store.copy_file(&entry.hash, &entry_path).await?;
+                        // Check if file already exists with same content
+                        let should_copy = if entry_path.exists() {
+                            // Compare metadata first (fast check)
+                            if let Ok(metadata) = fs::metadata(&entry_path).await {
+                                if metadata.len() == entry.size
+                                    && metadata.modified().ok() == Some(entry.modified) {
+                                    // Size and mtime match - likely unchanged, skip copy
+                                    false
+                                } else {
+                                    // Metadata differs - need to verify with hash
+                                    let file_hash = self.store.put_file(&entry_path).await?;
+                                    file_hash != entry.hash
+                                }
+                            } else {
+                                true
+                            }
+                        } else {
+                            true
+                        };
+
+                        if should_copy {
+                            // Restore file from blob object
+                            self.store.copy_file(&entry.hash, &entry_path).await?;
+                        }
+
+                        // Always update metadata (cheap operation)
                         set_mode(&entry_path, entry.mode)?;
                         set_mtime(&entry_path, entry.modified)?;
                     }
@@ -572,6 +596,52 @@ mod tests {
                 .await
                 .unwrap(),
             "Dashes"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_restore_skip_unchanged() {
+        use std::time::Duration;
+
+        let temp_dir = TempDir::new().unwrap();
+        let store_dir = temp_dir.path().join("store");
+        let workspace = temp_dir.path().join("workspace");
+        let restore_dir = temp_dir.path().join("restored");
+
+        fs::create_dir_all(&workspace).await.unwrap();
+        fs::write(workspace.join("file.txt"), "content").await.unwrap();
+
+        let manager = SnapshotManager::new(store_dir.clone()).unwrap();
+        let snapshot_id = manager
+            .create_snapshot(&workspace, Some("Test".to_string()), None)
+            .await
+            .unwrap();
+
+        // First restore
+        manager.restore_snapshot(&snapshot_id, &restore_dir).await.unwrap();
+
+        // Get file timestamp after first restore
+        let first_timestamp = std::fs::metadata(restore_dir.join("file.txt"))
+            .unwrap()
+            .modified()
+            .unwrap();
+
+        // Wait to ensure timestamp would differ if file was rewritten
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Second restore to same location
+        manager.restore_snapshot(&snapshot_id, &restore_dir).await.unwrap();
+
+        // File should NOT be rewritten (timestamp unchanged)
+        let second_timestamp = std::fs::metadata(restore_dir.join("file.txt"))
+            .unwrap()
+            .modified()
+            .unwrap();
+
+        // Timestamps should match (file was not recopied)
+        assert_eq!(
+            first_timestamp, second_timestamp,
+            "File should not be recopied if unchanged"
         );
     }
 
