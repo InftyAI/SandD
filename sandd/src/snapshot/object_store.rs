@@ -18,7 +18,7 @@ impl ObjectStore {
         let hash_hex = hash.to_hex().to_string();
 
         // Check if already exists (deduplication!)
-        let object_path = self.hash_to_path(&hash_hex);
+        let object_path = self.hash_to_path(&hash_hex)?;
         if object_path.exists() {
             return Ok(hash_hex);
         }
@@ -57,7 +57,7 @@ impl ObjectStore {
         let hash_hex = hash.to_hex().to_string();
 
         // Check if already exists (deduplication!)
-        let object_path = self.hash_to_path(&hash_hex);
+        let object_path = self.hash_to_path(&hash_hex)?;
         if object_path.exists() {
             return Ok(hash_hex);
         }
@@ -77,7 +77,7 @@ impl ObjectStore {
 
     /// Get blob content by hash
     pub async fn get_blob(&self, hash: &str) -> Result<Vec<u8>> {
-        let object_path = self.hash_to_path(hash);
+        let object_path = self.hash_to_path(hash)?;
         fs::read(&object_path)
             .await
             .with_context(|| format!("Object {} not found", hash))
@@ -85,7 +85,7 @@ impl ObjectStore {
 
     /// Copy object to file
     pub async fn copy_file(&self, hash: &str, dest: &Path) -> Result<()> {
-        let object_path = self.hash_to_path(hash);
+        let object_path = self.hash_to_path(hash)?;
 
         // Ensure parent directory exists
         if let Some(parent) = dest.parent() {
@@ -100,16 +100,29 @@ impl ObjectStore {
 
     /// Check if object exists
     pub fn exists(&self, hash: &str) -> bool {
-        self.hash_to_path(hash).exists()
+        self.hash_to_path(hash).map(|p| p.exists()).unwrap_or(false)
     }
 
     /// Convert hash to filesystem path
     /// Hash: abc123def456... → objects/ab/c123def456...
-    fn hash_to_path(&self, hash: &str) -> PathBuf {
-        self.root
+    ///
+    /// # Safety
+    /// Validates hash to prevent panic and path traversal
+    fn hash_to_path(&self, hash: &str) -> Result<PathBuf> {
+        // Need at least 3 chars to slice safely (hash[..2] and hash[2..])
+        if hash.len() < 3 {
+            anyhow::bail!("Invalid hash: too short (need at least 3 chars)");
+        }
+
+        // Validate hex characters only (prevent path traversal like "../")
+        if !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+            anyhow::bail!("Invalid hash: must contain only hex characters (0-9, a-f)");
+        }
+
+        Ok(self.root
             .join("objects")
             .join(&hash[..2])      // First 2 chars as subdir
-            .join(&hash[2..])      // Rest as filename
+            .join(&hash[2..]))     // Rest as filename
     }
 }
 
@@ -143,7 +156,7 @@ mod tests {
         let hash1 = store.put_blob(content).await.unwrap();
 
         // Get blob file path and timestamp
-        let blob_path = store.hash_to_path(&hash1);
+        let blob_path = store.hash_to_path(&hash1).unwrap();
         let first_modified = std::fs::metadata(&blob_path)
             .unwrap()
             .modified()
@@ -177,11 +190,32 @@ mod tests {
         let store = ObjectStore::new(temp_dir.path().to_path_buf());
 
         let hash = "abc123def456789";
-        let path = store.hash_to_path(hash);
+        let path = store.hash_to_path(hash).unwrap();
 
         // Should create subdirectory based on first 2 chars
         assert!(path.to_string_lossy().contains("/ab/"));
         assert!(path.to_string_lossy().contains("c123def456789"));
+    }
+
+    #[test]
+    fn test_hash_validation() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = ObjectStore::new(temp_dir.path().to_path_buf());
+
+        // Valid hash (hex only, 3+ chars)
+        assert!(store.hash_to_path("abc123").is_ok());
+        assert!(store.hash_to_path("def456789abcdef").is_ok());
+
+        // Too short (< 3 chars) - should fail
+        assert!(store.hash_to_path("ab").is_err());
+        assert!(store.hash_to_path("a").is_err());
+        assert!(store.hash_to_path("").is_err());
+
+        // Path traversal attempts - should fail (non-hex characters)
+        assert!(store.hash_to_path("../etc/passwd").is_err());
+        assert!(store.hash_to_path("..").is_err());
+        assert!(store.hash_to_path("ab/../cd").is_err());
+        assert!(store.hash_to_path("abc/123").is_err());
     }
 
     #[tokio::test]
