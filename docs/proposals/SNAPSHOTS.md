@@ -47,17 +47,20 @@ We use Git's storage model (hierarchical trees, content-addressable) but with sn
 └─────────────────────────────────────────────────────────┘
                           ↓
          ┌────────────────────────────────┐
-         │     Filesystem Storage          │
-         │  .snapshots/                    │
-         │  ├── objects/                   │
-         │  │   ├── ab/                    │
-         │  │   │   └── cdef123...         │
-         │  │   └── 12/                    │
-         │  │       └── 3456...            │
-         │  ├── snapshots/                 │
-         │  │   ├── snap-uuid-1.json       │
-         │  │   └── snap-uuid-2.json       │
-         │  └── HEAD                       │
+         │     Filesystem Storage         │
+         │  .snapshots/                   │
+         │  ├── objects/                  │
+         │  │   ├── ab/                   │
+         │  │   │   └── cdef123...        │
+         │  │   └── 12/                   │
+         │  │       └── 3456...           │
+         │  ├── snapshots/                │
+         │  │   ├── snap-uuid-1.json      │
+         │  │   └── snap-uuid-2.json      │
+         │  └── refs/                     │
+         │      └── tags/                 │
+         │          ├── v1.0.0            │
+         │          └── stable            │
          └────────────────────────────────┘
 ```
 
@@ -127,7 +130,29 @@ objects/
     └── 887766...  ← Tree: root directory structure (JSON)
 
 snapshots/snap-uuid.json → points to root tree (998877...)
+
+refs/tags/v1.0.0 → contains: snap-uuid  (plain text file)
+refs/tags/stable → contains: snap-uuid
 ```
+
+**Tag System (Git-Style):**
+
+Tags are stored as plain text files in `refs/tags/`:
+
+```
+refs/tags/
+├── v1.0.0      ← Contains: "snap-abc-123-def"
+├── stable      ← Contains: "snap-xyz-789"
+└── pre-deploy  ← Contains: "snap-uvw-456"
+```
+
+**Tag properties:**
+- **Immutable**: Once created, a tag cannot be changed (like Git tags)
+- **O(1) lookup**: Finding snapshots by tag requires reading one small file
+- **Stored in both places**: Tag names are in snapshot JSON *and* tag ref files
+  - Snapshot file: Contains list of tags for fast delete
+  - Tag refs: Enable O(1) tag → snapshot lookup
+- **Automatically cleaned up**: Deleting a snapshot removes its tag refs
 
 ---
 
@@ -159,18 +184,20 @@ impl SnapshotManager {
     ) -> Result<()>;
 
     /// List all snapshots (optionally filtered by tags)
+    /// Filter by tags uses O(1) tag ref lookup
     pub async fn list_snapshots(
         &self,
-        filter_tags: Option<Vec<String>>,
+        tags: Option<Vec<String>>,  // OR filter: any matching tag
     ) -> Result<Vec<SnapshotInfo>>;
 
-    /// Find snapshots by tag
-    pub async fn find_by_tag(&self, tag: &str) -> Result<Vec<SnapshotInfo>>;
+    /// Find snapshot by tag (O(1) lookup via tag ref)
+    /// Returns single snapshot since tags are immutable
+    pub async fn find_by_tag(&self, tag: &str) -> Result<Option<SnapshotInfo>>;
 
     /// Get snapshot by ID
     pub async fn get_snapshot(&self, id: &str) -> Result<Snapshot>;
 
-    /// Delete snapshot
+    /// Delete snapshot (also removes tag refs)
     pub async fn delete_snapshot(&self, id: &str) -> Result<()>;
 }
 ```
@@ -247,8 +274,15 @@ async fn main() -> Result<()> {
         println!("{}: {} (tags: {:?})", snap.id, snap.message, snap.tags);
     }
 
-    // Find snapshots by tag
-    let pre_task_snapshots = manager.find_by_tag("pre-task").await?;
+    // Find snapshot by tag (O(1) lookup)
+    if let Some(snapshot) = manager.find_by_tag("pre-task").await? {
+        println!("Found: {}", snapshot.id);
+    }
+
+    // Filter snapshots by tags
+    let filtered = manager.list_snapshots(
+        Some(vec!["pre-task".to_string(), "important".to_string()])
+    ).await?;  // Returns snapshots with "pre-task" OR "important"
 
     // Get specific snapshot details
     let snapshot = manager.get_snapshot(&snapshot_id).await?;

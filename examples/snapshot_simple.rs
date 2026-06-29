@@ -58,16 +58,14 @@ async fn main() -> Result<()> {
         println!("      Files: {}, Size: {} bytes", snap.file_count, snap.total_size);
     }
 
-    // 6. Filter by tag
-    println!("\n6. Finding snapshots with 'init' tag:");
-    let init_snapshots = manager.find_by_tag("init").await?;
-    for snap in &init_snapshots {
+    // 6. Find by tag (returns single snapshot since tags are immutable)
+    println!("\n6. Finding snapshot with 'init' tag:");
+    if let Some(snap) = manager.find_by_tag("init").await? {
         println!("   {} - {}", snap.id, snap.message);
     }
 
-    println!("\n7. Finding snapshots with 'feature' tag:");
-    let feature_snapshots = manager.find_by_tag("feature").await?;
-    for snap in &feature_snapshots {
+    println!("\n7. Finding snapshot with 'feature' tag:");
+    if let Some(snap) = manager.find_by_tag("feature").await? {
         println!("   {} - {}", snap.id, snap.message);
     }
 

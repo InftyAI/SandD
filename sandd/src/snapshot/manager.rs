@@ -10,12 +10,14 @@ use uuid::Uuid;
 pub struct SnapshotManager {
     store: ObjectStore,
     snapshots_dir: PathBuf,
+    tags_dir: PathBuf,
 }
 
 impl SnapshotManager {
     pub fn new(root: PathBuf) -> Result<Self> {
         let store = ObjectStore::new(root.clone());
         let snapshots_dir = root.join("snapshots");
+        let tags_dir = root.join("refs").join("tags");
 
         std::fs::create_dir_all(&snapshots_dir).with_context(|| {
             format!(
@@ -24,9 +26,13 @@ impl SnapshotManager {
             )
         })?;
 
+        std::fs::create_dir_all(&tags_dir)
+            .with_context(|| format!("Failed to create tags directory: {}", tags_dir.display()))?;
+
         Ok(Self {
             store,
             snapshots_dir,
+            tags_dir,
         })
     }
 
@@ -37,18 +43,37 @@ impl SnapshotManager {
         message: Option<String>,
         tags: Option<Vec<String>>,
     ) -> Result<SnapshotId> {
+        let mut tags = tags.unwrap_or_default();
+
+        // Deduplicate tags in input
+        tags.sort();
+        tags.dedup();
+
+        // Validate tag names (security: prevent path traversal)
+        for tag in &tags {
+            Self::validate_tag_name(tag)?;
+        }
+
+        // Check tag existence upfront (still has TOCTOU, but add_tag uses atomic write)
+        for tag in &tags {
+            let tag_file = self.tags_dir.join(tag);
+            if tag_file.exists() {
+                anyhow::bail!("Tag '{}' already exists", tag);
+            }
+        }
+
         let snapshot_id = Uuid::new_v4().to_string();
 
         // Build tree recursively
         let (tree_hash, file_count, total_size) = self.build_tree(workspace).await?;
 
-        // Create snapshot metadata
+        // Create snapshot metadata (store tags in snapshot file)
         let snapshot = Snapshot {
             id: snapshot_id.clone(),
             created_at: SystemTime::now(),
             tree: tree_hash,
             message: message.unwrap_or_else(|| format!("Snapshot {}", snapshot_id)),
-            tags: tags.unwrap_or_default(),
+            tags: tags.clone(), // Store in snapshot for fast access
             workspace_path: workspace.to_path_buf(),
             file_count,
             total_size,
@@ -62,6 +87,11 @@ impl SnapshotManager {
         let temp_file = snapshot_file.with_extension("tmp");
         fs::write(&temp_file, json).await?;
         fs::rename(temp_file, snapshot_file).await?;
+
+        // Create tag refs (Git-style: refs/tags/<tag> contains snapshot ID for O(1) filtering)
+        for tag in &tags {
+            self.add_tag(&snapshot_id, tag).await?;
+        }
 
         Ok(snapshot_id)
     }
@@ -97,7 +127,9 @@ impl SnapshotManager {
                         target.is_dir()
                     } else {
                         // Relative path - resolve relative to parent
-                        path.parent().map(|p| p.join(&target).is_dir()).unwrap_or(false)
+                        path.parent()
+                            .map(|p| p.join(&target).is_dir())
+                            .unwrap_or(false)
                     };
 
                     let symlink_type = if target_is_dir {
@@ -187,7 +219,8 @@ impl SnapshotManager {
                             // Compare metadata first (fast check)
                             if let Ok(metadata) = fs::metadata(&entry_path).await {
                                 if metadata.len() == entry.size
-                                    && metadata.modified().ok() == Some(entry.modified) {
+                                    && metadata.modified().ok() == Some(entry.modified)
+                                {
                                     // Size and mtime match - likely unchanged, skip copy
                                     false
                                 } else {
@@ -248,29 +281,46 @@ impl SnapshotManager {
     }
 
     /// List all snapshots (optionally filtered by tags)
-    pub async fn list_snapshots(
-        &self,
-        filter_tags: Option<Vec<String>>,
-    ) -> Result<Vec<SnapshotInfo>> {
-        let mut snapshots = Vec::new();
-
-        let mut entries = fs::read_dir(&self.snapshots_dir).await?;
-        while let Some(entry) = entries.next_entry().await? {
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) != Some("json") {
-                continue;
+    pub async fn list_snapshots(&self, tags: Option<Vec<String>>) -> Result<Vec<SnapshotInfo>> {
+        let snapshot_ids = if let Some(tags) = tags {
+            // Validate tag names (security)
+            for tag in &tags {
+                Self::validate_tag_name(tag)?;
             }
 
-            let json = fs::read_to_string(&path).await?;
-            let snapshot: Snapshot = serde_json::from_str(&json)?;
-
-            // Filter by tags if specified
-            if let Some(ref filter) = filter_tags {
-                if !filter.iter().any(|tag| snapshot.tags.contains(tag)) {
-                    continue;
+            // Fast path: O(k) tag lookup where k = number of filter tags
+            let mut ids = Vec::new();
+            for tag in tags {
+                // Error if tag doesn't exist (don't silently skip)
+                match self.get_snapshot_by_tag(&tag).await? {
+                    Some(id) => ids.push(id),
+                    None => anyhow::bail!("Tag '{}' does not exist", tag),
                 }
             }
+            // Deduplicate: multiple tags may point to same snapshot
+            ids.sort();
+            ids.dedup();
+            ids
+        } else {
+            // No filter: load all snapshots
+            let mut ids = Vec::new();
+            let mut entries = fs::read_dir(&self.snapshots_dir).await?;
+            while let Some(entry) = entries.next_entry().await? {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("json") {
+                    if let Some(stem) = path.file_stem() {
+                        ids.push(stem.to_string_lossy().to_string());
+                    }
+                }
+            }
+            ids
+        };
 
+        // Load snapshot metadata
+        let mut snapshots = Vec::new();
+        for id in snapshot_ids {
+            // Propagate errors (don't silently ignore corrupted snapshot files)
+            let snapshot = self.get_snapshot(&id).await?;
             snapshots.push(snapshot.into());
         }
 
@@ -280,9 +330,18 @@ impl SnapshotManager {
         Ok(snapshots)
     }
 
-    /// Find snapshots by tag
-    pub async fn find_by_tag(&self, tag: &str) -> Result<Vec<SnapshotInfo>> {
-        self.list_snapshots(Some(vec![tag.to_string()])).await
+    /// Find snapshot by tag (O(1) lookup via tag ref)
+    /// Returns single snapshot since tags are immutable
+    pub async fn find_by_tag(&self, tag: &str) -> Result<Option<SnapshotInfo>> {
+        // Validate tag name (security)
+        Self::validate_tag_name(tag)?;
+
+        if let Some(id) = self.get_snapshot_by_tag(tag).await? {
+            let snapshot = self.get_snapshot(&id).await?;
+            Ok(Some(snapshot.into()))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Get snapshot by ID
@@ -295,15 +354,95 @@ impl SnapshotManager {
         Ok(snapshot)
     }
 
-    /// Delete snapshot
-    /// TODO: This will remove the snapshot metadata file, but the underlying objects in the object
-    /// store will remain.
+    /// Delete snapshot and its tag refs
     pub async fn delete_snapshot(&self, id: &str) -> Result<()> {
+        // Read snapshot to get tags (O(1) - no scanning!)
+        let snapshot = self.get_snapshot(id).await?;
+
+        // Remove tag refs
+        for tag in &snapshot.tags {
+            self.remove_tag(tag)
+                .await
+                .with_context(|| format!("Failed to remove tag ref '{}'", tag))?;
+        }
+
+        // Remove snapshot file
         let snapshot_file = self.snapshots_dir.join(format!("{}.json", id));
         fs::remove_file(snapshot_file)
             .await
             .with_context(|| format!("Failed to delete snapshot {}", id))?;
         Ok(())
+    }
+
+    /// Validate tag name (prevent path traversal and invalid names)
+    fn validate_tag_name(tag: &str) -> Result<()> {
+        // Reject empty tags
+        if tag.is_empty() {
+            anyhow::bail!("Tag name cannot be empty");
+        }
+
+        // Reject absolute paths
+        if std::path::Path::new(tag).is_absolute() {
+            anyhow::bail!("Tag '{}' is an absolute path", tag);
+        }
+
+        // Reject path traversal (../, ..\, etc.)
+        if tag.contains("..") {
+            anyhow::bail!("Tag '{}' contains path traversal sequence", tag);
+        }
+
+        // Reject path separators (prevent subdirectories)
+        if tag.contains('/') || tag.contains('\\') {
+            anyhow::bail!("Tag '{}' contains path separators", tag);
+        }
+
+        // Reject special names
+        if tag == "." || tag == ".." {
+            anyhow::bail!("Tag '{}' is a reserved name", tag);
+        }
+
+        // Reject control characters and other dangerous chars
+        if tag.chars().any(|c| c.is_control() || c == '\0') {
+            anyhow::bail!("Tag '{}' contains invalid characters", tag);
+        }
+
+        Ok(())
+    }
+
+    /// Add a tag to a snapshot (creates tag ref)
+    /// Assumes tag doesn't exist and is validated (checked by caller)
+    async fn add_tag(&self, snapshot_id: &str, tag: &str) -> Result<()> {
+        let tag_file = self.tags_dir.join(tag);
+
+        // Atomic write with temp file + rename
+        let temp_file = tag_file.with_extension("tmp");
+        fs::write(&temp_file, snapshot_id).await?;
+        fs::rename(temp_file, tag_file).await?;
+
+        Ok(())
+    }
+
+    /// Remove a tag (delete tag ref file)
+    async fn remove_tag(&self, tag: &str) -> Result<()> {
+        // Note: tag is from snapshot.tags which was already validated at creation
+        let tag_file = self.tags_dir.join(tag);
+        if tag_file.exists() {
+            fs::remove_file(tag_file).await?;
+        }
+        Ok(())
+    }
+
+    /// Get snapshot ID for a tag (O(1) - just read tag file)
+    /// Returns single snapshot ID since tags are immutable (one tag → one snapshot)
+    async fn get_snapshot_by_tag(&self, tag: &str) -> Result<Option<String>> {
+        let tag_file = self.tags_dir.join(tag);
+
+        if !tag_file.exists() {
+            return Ok(None);
+        }
+
+        let content = fs::read_to_string(&tag_file).await?;
+        Ok(Some(content.trim().to_string()))
     }
 }
 
@@ -425,12 +564,20 @@ mod tests {
 
         // Create multiple snapshots
         let _id1 = manager
-            .create_snapshot(&workspace, Some("First".to_string()), Some(vec!["tag1".to_string()]))
+            .create_snapshot(
+                &workspace,
+                Some("First".to_string()),
+                Some(vec!["tag1".to_string()]),
+            )
             .await
             .unwrap();
 
         let _id2 = manager
-            .create_snapshot(&workspace, Some("Second".to_string()), Some(vec!["tag2".to_string()]))
+            .create_snapshot(
+                &workspace,
+                Some("Second".to_string()),
+                Some(vec!["tag2".to_string()]),
+            )
             .await
             .unwrap();
 
@@ -448,10 +595,10 @@ mod tests {
         assert_eq!(tag1_snapshots.len(), 1);
         assert_eq!(tag1_snapshots[0].message, "First");
 
-        // Find by tag
-        let tag2_snapshots = manager.find_by_tag("tag2").await.unwrap();
-        assert_eq!(tag2_snapshots.len(), 1);
-        assert_eq!(tag2_snapshots[0].message, "Second");
+        // Find by tag (returns single snapshot since tags are immutable)
+        let tag2_snapshot = manager.find_by_tag("tag2").await.unwrap();
+        assert!(tag2_snapshot.is_some());
+        assert_eq!(tag2_snapshot.unwrap().message, "Second");
     }
 
     #[tokio::test]
@@ -524,7 +671,9 @@ mod tests {
 
         // Create first file with content
         let content = "Same content in multiple files";
-        fs::write(workspace.join("file1.txt"), content).await.unwrap();
+        fs::write(workspace.join("file1.txt"), content)
+            .await
+            .unwrap();
 
         // Create first snapshot
         manager
@@ -535,7 +684,10 @@ mod tests {
         // Get blob creation time
         let objects_dir = store_dir.join("objects");
         let mut first_blob_path = None;
-        for entry in walkdir::WalkDir::new(&objects_dir).into_iter().filter_map(|e| e.ok()) {
+        for entry in walkdir::WalkDir::new(&objects_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
             if entry.file_type().is_file() {
                 let data = std::fs::read(entry.path()).unwrap();
                 if data == content.as_bytes() {
@@ -555,8 +707,12 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Add more files with same content
-        fs::write(workspace.join("file2.txt"), content).await.unwrap();
-        fs::write(workspace.join("file3.txt"), content).await.unwrap();
+        fs::write(workspace.join("file2.txt"), content)
+            .await
+            .unwrap();
+        fs::write(workspace.join("file3.txt"), content)
+            .await
+            .unwrap();
 
         // Create second snapshot
         manager
@@ -577,7 +733,10 @@ mod tests {
 
         // Count unique content blobs
         let mut content_blob_count = 0;
-        for entry in walkdir::WalkDir::new(&objects_dir).into_iter().filter_map(|e| e.ok()) {
+        for entry in walkdir::WalkDir::new(&objects_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
             if entry.file_type().is_file() {
                 let data = std::fs::read(entry.path()).unwrap();
                 if data == content.as_bytes() {
@@ -586,7 +745,10 @@ mod tests {
             }
         }
 
-        assert_eq!(content_blob_count, 1, "Content should be stored exactly once");
+        assert_eq!(
+            content_blob_count, 1,
+            "Content should be stored exactly once"
+        );
     }
 
     #[tokio::test]
@@ -639,7 +801,9 @@ mod tests {
         let restore_dir = temp_dir.path().join("restored");
 
         fs::create_dir_all(&workspace).await.unwrap();
-        fs::write(workspace.join("file.txt"), "content").await.unwrap();
+        fs::write(workspace.join("file.txt"), "content")
+            .await
+            .unwrap();
 
         let manager = SnapshotManager::new(store_dir.clone()).unwrap();
         let snapshot_id = manager
@@ -648,7 +812,10 @@ mod tests {
             .unwrap();
 
         // First restore
-        manager.restore_snapshot(&snapshot_id, &restore_dir).await.unwrap();
+        manager
+            .restore_snapshot(&snapshot_id, &restore_dir)
+            .await
+            .unwrap();
 
         // Get file timestamp after first restore
         let first_timestamp = std::fs::metadata(restore_dir.join("file.txt"))
@@ -660,7 +827,10 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Second restore to same location
-        manager.restore_snapshot(&snapshot_id, &restore_dir).await.unwrap();
+        manager
+            .restore_snapshot(&snapshot_id, &restore_dir)
+            .await
+            .unwrap();
 
         // File should NOT be rewritten (timestamp unchanged)
         let second_timestamp = std::fs::metadata(restore_dir.join("file.txt"))
@@ -786,9 +956,221 @@ mod tests {
         // Getting deleted snapshot should fail
         let result = manager.get_snapshot(&snap1_id).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_tag_immutability() {
+        let temp_dir = TempDir::new().unwrap();
+        let store_dir = temp_dir.path().join("store");
+        let workspace = temp_dir.path().join("workspace");
+
+        fs::create_dir_all(&workspace).await.unwrap();
+        fs::write(workspace.join("file.txt"), "Content")
+            .await
+            .unwrap();
+
+        let manager = SnapshotManager::new(store_dir).unwrap();
+
+        // Create first snapshot with tag
+        let _snap1 = manager
+            .create_snapshot(
+                &workspace,
+                Some("First".to_string()),
+                Some(vec!["v1.0.0".to_string()]),
+            )
+            .await
+            .unwrap();
+
+        // Try to create second snapshot with same tag - should fail
+        let result = manager
+            .create_snapshot(
+                &workspace,
+                Some("Second".to_string()),
+                Some(vec!["v1.0.0".to_string()]),
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("already exists"));
+    }
+
+    #[tokio::test]
+    async fn test_delete_snapshot_with_tags() {
+        let temp_dir = TempDir::new().unwrap();
+        let store_dir = temp_dir.path().join("store");
+        let workspace = temp_dir.path().join("workspace");
+
+        fs::create_dir_all(&workspace).await.unwrap();
+        fs::write(workspace.join("file.txt"), "Content")
+            .await
+            .unwrap();
+
+        let manager = SnapshotManager::new(store_dir.clone()).unwrap();
+
+        // Create snapshot with tags
+        let snap_id = manager
+            .create_snapshot(
+                &workspace,
+                Some("Test".to_string()),
+                Some(vec!["v1.0.0".to_string(), "stable".to_string()]),
+            )
+            .await
+            .unwrap();
+
+        // Verify tag files exist
+        let tag_file1 = store_dir.join("refs/tags/v1.0.0");
+        let tag_file2 = store_dir.join("refs/tags/stable");
+        assert!(tag_file1.exists());
+        assert!(tag_file2.exists());
+
+        // Delete snapshot
+        manager.delete_snapshot(&snap_id).await.unwrap();
+
+        // Tag files should be deleted
+        assert!(!tag_file1.exists());
+        assert!(!tag_file2.exists());
+
+        // Can now reuse the tags
+        let result = manager
+            .create_snapshot(
+                &workspace,
+                Some("New".to_string()),
+                Some(vec!["v1.0.0".to_string()]),
+            )
+            .await;
+        assert!(result.is_ok());
 
         // Deleting non-existent snapshot should fail
         let result = manager.delete_snapshot("non-existent-id").await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_list_snapshots_deduplication() {
+        let temp_dir = TempDir::new().unwrap();
+        let store_dir = temp_dir.path().join("store");
+        let workspace = temp_dir.path().join("workspace");
+
+        fs::create_dir_all(&workspace).await.unwrap();
+        fs::write(workspace.join("file.txt"), "Content")
+            .await
+            .unwrap();
+
+        let manager = SnapshotManager::new(store_dir).unwrap();
+
+        // Create snapshot with multiple tags
+        let _snap_id = manager
+            .create_snapshot(
+                &workspace,
+                Some("Test".to_string()),
+                Some(vec!["v1.0.0".to_string(), "stable".to_string(), "latest".to_string()]),
+            )
+            .await
+            .unwrap();
+
+        // Filter by multiple tags pointing to same snapshot
+        let snapshots = manager
+            .list_snapshots(Some(vec![
+                "v1.0.0".to_string(),
+                "stable".to_string(),
+                "latest".to_string(),
+            ]))
+            .await
+            .unwrap();
+
+        // Should return only 1 snapshot (deduplicated)
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].message, "Test");
+    }
+
+    #[test]
+    fn test_validate_tag_name() {
+        // Valid tags
+        let valid = vec!["v1.0.0", "stable", "release-2024", "tag_name", "TAG123"];
+        for tag in valid {
+            assert!(
+                SnapshotManager::validate_tag_name(tag).is_ok(),
+                "Should accept valid tag: {}",
+                tag
+            );
+        }
+
+        // Invalid tags
+        let invalid = vec![
+            ("../etc/passwd", "path traversal"),
+            ("..\\windows\\system32", "Windows path traversal"),
+            ("/etc/passwd", "absolute path (Unix)"),
+            ("C:\\windows\\system32", "absolute path (Windows)"),
+            ("subdir/tag", "path separator (/)"),
+            ("subdir\\tag", "path separator (\\)"),
+            (".", "special name (.)"),
+            ("..", "special name (..)"),
+            ("", "empty string"),
+            ("tag\0null", "null byte"),
+            ("tag\nline", "control char (newline)"),
+        ];
+
+        for (tag, reason) in invalid {
+            assert!(
+                SnapshotManager::validate_tag_name(tag).is_err(),
+                "Should reject {}: {}",
+                reason,
+                tag
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_duplicate_tags_in_input() {
+        let temp_dir = TempDir::new().unwrap();
+        let store_dir = temp_dir.path().join("store");
+        let workspace = temp_dir.path().join("workspace");
+
+        fs::create_dir_all(&workspace).await.unwrap();
+        fs::write(workspace.join("file.txt"), "Content")
+            .await
+            .unwrap();
+
+        let manager = SnapshotManager::new(store_dir).unwrap();
+
+        // Create snapshot with duplicate tags in input
+        let result = manager
+            .create_snapshot(
+                &workspace,
+                Some("Test".to_string()),
+                Some(vec![
+                    "v1.0.0".to_string(),
+                    "v1.0.0".to_string(), // Duplicate
+                    "stable".to_string(),
+                    "v1.0.0".to_string(), // Another duplicate
+                ]),
+            )
+            .await;
+
+        // Should succeed (duplicates removed)
+        assert!(result.is_ok());
+
+        let snap_id = result.unwrap();
+        let snapshot = manager.get_snapshot(&snap_id).await.unwrap();
+
+        // Should have deduplicated tags
+        assert_eq!(snapshot.tags, vec!["stable", "v1.0.0"]);
+    }
+
+    #[tokio::test]
+    async fn test_list_nonexistent_tag() {
+        let temp_dir = TempDir::new().unwrap();
+        let store_dir = temp_dir.path().join("store");
+
+        let manager = SnapshotManager::new(store_dir).unwrap();
+
+        // Try to list with non-existent tag
+        let result = manager
+            .list_snapshots(Some(vec!["nonexistent".to_string()]))
+            .await;
+
+        // Should error instead of returning empty list
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("does not exist"));
     }
 }
