@@ -11,7 +11,7 @@ pub struct Snapshot {
     pub tree: String,
     pub message: String,
     pub tags: Vec<String>,
-    pub workspace_path: PathBuf,
+    pub workspace: PathBuf,
     pub file_count: usize,
     pub total_size: u64,
 }

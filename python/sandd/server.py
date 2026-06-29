@@ -5,7 +5,7 @@ import time
 import sys
 import select
 
-from .models import CommandResult, ServerStats, DaemonInfo
+from .models import CommandResult, ServerStats, DaemonInfo, SnapshotInfo
 
 try:
     from ._core import Server as _RustServer, Session, TunnelConfig
@@ -466,6 +466,197 @@ class Server:
                 return True
             time.sleep(poll_interval)
         return False
+
+    def create_snapshot(
+        self,
+        daemon_id: str,
+        workspace: str,
+        message: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+    ) -> str:
+        """Create a snapshot of workspace on daemon
+
+        Args:
+            daemon_id: Target daemon ID
+            workspace: Path to workspace directory on daemon
+            message: Optional snapshot description
+            tags: Optional list of tags (must be unique, immutable)
+
+        Returns:
+            Snapshot ID (UUID)
+
+        Raises:
+            ValueError: If daemon not found
+            RuntimeError: If tag already exists or other error
+
+        Example:
+            >>> snapshot_id = server.create_snapshot(
+            ...     "daemon-1",
+            ...     "/workspace",
+            ...     message="Before deployment",
+            ...     tags=["v1.0.0", "stable"]
+            ... )
+            >>> print(f"Created: {snapshot_id}")
+        """
+        return self._server.create_snapshot(daemon_id, workspace, message, tags)
+
+    def restore_snapshot(
+        self,
+        daemon_id: str,
+        snapshot_id: str,
+        destination: str,
+    ) -> int:
+        """Restore snapshot on daemon
+
+        Args:
+            daemon_id: Target daemon ID
+            snapshot_id: Snapshot ID to restore
+            destination: Path to restore to on daemon
+
+        Returns:
+            Number of files restored
+
+        Raises:
+            ValueError: If daemon or snapshot not found
+            RuntimeError: If restore fails
+
+        Example:
+            >>> file_count = server.restore_snapshot(
+            ...     "daemon-1",
+            ...     "snap-abc-123",
+            ...     "/tmp/restored"
+            ... )
+            >>> print(f"Restored {file_count} files")
+        """
+        return self._server.restore_snapshot(daemon_id, snapshot_id, destination)
+
+    def list_snapshots(
+        self,
+        daemon_id: str,
+        tags: Optional[List[str]] = None,
+    ) -> List[SnapshotInfo]:
+        """List snapshots on daemon (optionally filtered by tags)
+
+        Args:
+            daemon_id: Target daemon ID
+            tags: Optional list of tags to filter by (OR logic)
+
+        Returns:
+            List of snapshot info (sorted by creation time, newest first)
+
+        Raises:
+            ValueError: If daemon not found
+            RuntimeError: If tag doesn't exist
+
+        Example:
+            >>> # List all snapshots
+            >>> snapshots = server.list_snapshots("daemon-1")
+            >>> for snap in snapshots:
+            ...     print(f"{snap.id}: {snap.message} (tags: {snap.tags})")
+            >>>
+            >>> # Filter by tags
+            >>> snapshots = server.list_snapshots("daemon-1", tags=["stable"])
+        """
+        result = self._server.list_snapshots(daemon_id, tags)
+        return [
+            SnapshotInfo(
+                id=snap["id"],
+                created_at=snap["created_at"],
+                message=snap["message"],
+                tags=snap["tags"],
+                file_count=snap["file_count"],
+                total_size=snap["total_size"],
+            )
+            for snap in result
+        ]
+
+    def find_snapshot_by_tag(
+        self,
+        daemon_id: str,
+        tag: str,
+    ) -> Optional[SnapshotInfo]:
+        """Find snapshot by tag on daemon (O(1) lookup)
+
+        Args:
+            daemon_id: Target daemon ID
+            tag: Tag name to search for
+
+        Returns:
+            Snapshot info if found, None otherwise
+
+        Raises:
+            ValueError: If daemon not found
+            RuntimeError: If tag name is invalid
+
+        Example:
+            >>> snapshot = server.find_snapshot_by_tag("daemon-1", "v1.0.0")
+            >>> if snapshot:
+            ...     print(f"Found: {snapshot.id}")
+        """
+        result = self._server.find_snapshot_by_tag(daemon_id, tag)
+        if result is None:
+            return None
+
+        return SnapshotInfo(
+            id=result["id"],
+            created_at=result["created_at"],
+            message=result["message"],
+            tags=result["tags"],
+            file_count=result["file_count"],
+            total_size=result["total_size"],
+        )
+
+    def get_snapshot(
+        self,
+        daemon_id: str,
+        snapshot_id: str,
+    ) -> SnapshotInfo:
+        """Get snapshot info from daemon
+
+        Args:
+            daemon_id: Target daemon ID
+            snapshot_id: Snapshot ID
+
+        Returns:
+            Snapshot info
+
+        Raises:
+            ValueError: If daemon or snapshot not found
+
+        Example:
+            >>> snapshot = server.get_snapshot("daemon-1", "snap-abc-123")
+            >>> print(f"Message: {snapshot.message}")
+            >>> print(f"Tags: {snapshot.tags}")
+        """
+        result = self._server.get_snapshot(daemon_id, snapshot_id)
+        return SnapshotInfo(
+            id=result["id"],
+            created_at=result["created_at"],
+            message=result["message"],
+            tags=result["tags"],
+            file_count=result["file_count"],
+            total_size=result["total_size"],
+        )
+
+    def delete_snapshot(
+        self,
+        daemon_id: str,
+        snapshot_id: str,
+    ) -> None:
+        """Delete snapshot from daemon (also removes tag refs)
+
+        Args:
+            daemon_id: Target daemon ID
+            snapshot_id: Snapshot ID to delete
+
+        Raises:
+            ValueError: If daemon or snapshot not found
+
+        Example:
+            >>> server.delete_snapshot("daemon-1", "snap-abc-123")
+            >>> print("Snapshot deleted")
+        """
+        self._server.delete_snapshot(daemon_id, snapshot_id)
 
     @property
     def address(self) -> str:

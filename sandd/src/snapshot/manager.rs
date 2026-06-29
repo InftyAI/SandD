@@ -74,7 +74,7 @@ impl SnapshotManager {
             tree: tree_hash,
             message: message.unwrap_or_else(|| format!("Snapshot {}", snapshot_id)),
             tags: tags.clone(), // Store in snapshot for fast access
-            workspace_path: workspace.to_path_buf(),
+            workspace: workspace.to_path_buf(),
             file_count,
             total_size,
         };
@@ -332,7 +332,7 @@ impl SnapshotManager {
 
     /// Find snapshot by tag (O(1) lookup via tag ref)
     /// Returns single snapshot since tags are immutable
-    pub async fn find_by_tag(&self, tag: &str) -> Result<Option<SnapshotInfo>> {
+    pub async fn find_snapshot_by_tag(&self, tag: &str) -> Result<Option<SnapshotInfo>> {
         // Validate tag name (security)
         Self::validate_tag_name(tag)?;
 
@@ -345,13 +345,13 @@ impl SnapshotManager {
     }
 
     /// Get snapshot by ID
-    pub async fn get_snapshot(&self, id: &str) -> Result<Snapshot> {
+    pub async fn get_snapshot(&self, id: &str) -> Result<SnapshotInfo> {
         let snapshot_file = self.snapshots_dir.join(format!("{}.json", id));
         let json = fs::read_to_string(snapshot_file)
             .await
             .with_context(|| format!("Snapshot {} not found", id))?;
         let snapshot: Snapshot = serde_json::from_str(&json)?;
-        Ok(snapshot)
+        Ok(snapshot.into())
     }
 
     /// Delete snapshot and its tag refs
@@ -596,7 +596,7 @@ mod tests {
         assert_eq!(tag1_snapshots[0].message, "First");
 
         // Find by tag (returns single snapshot since tags are immutable)
-        let tag2_snapshot = manager.find_by_tag("tag2").await.unwrap();
+        let tag2_snapshot = manager.find_snapshot_by_tag("tag2").await.unwrap();
         assert!(tag2_snapshot.is_some());
         assert_eq!(tag2_snapshot.unwrap().message, "Second");
     }
@@ -910,7 +910,6 @@ mod tests {
         assert_eq!(snapshot.message, "Test message");
         assert_eq!(snapshot.tags, vec!["tag1", "tag2"]);
         assert_eq!(snapshot.file_count, 1);
-        assert_eq!(snapshot.workspace_path, workspace);
 
         // Try getting non-existent snapshot
         let result = manager.get_snapshot("non-existent-id").await;
