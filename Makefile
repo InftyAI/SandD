@@ -130,3 +130,15 @@ publish-pypi: $(MATURIN) build-wheels
 publish-crate:
 	@echo "Publishing sandd daemon to crates.io..."
 	cargo publish --package sandd
+
+.PHONY: benchmark
+benchmark: $(MATURIN)
+	@echo "Running benchmarks for sandd daemon..."
+	@echo ""
+	cargo bench --package sandd
+
+.PHONY: benchmark-results
+benchmark-results:
+	@echo "Benchmark results for sandd daemon:"
+	@echo ""
+	open target/criterion/report/index.html

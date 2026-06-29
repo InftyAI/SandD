@@ -1,83 +1,29 @@
-# SandD Filesystem Snapshot System - Design Proposal
+# SandD Snapshot System
+
+## Overview
+
+A Git-inspired snapshot system for capturing and restoring workspace state in agent sandboxes. This is a **pure snapshot system** (not version control) - focused on state capture/restore rather than tracking changes over time.
+
+## Key Features
+
+- **Hierarchical trees**: Efficient for large projects (100k+ files)
+- **Content-addressable storage**: Automatic deduplication via BLAKE3 hashing
+- **Cross-platform**: Works on Linux, macOS, Windows without special privileges
+- **Tag-based filtering**: Organize snapshots with multiple tags
+- **Independent snapshots**: No parent chains, each snapshot stands alone
 
 ---
 
-## Executive Summary
+## Similar Systems
 
-This document describes a **Git-inspired content-addressable snapshot system** for SandD daemon workspaces. The system provides:
+This design takes inspiration from:
 
-- **Filesystem versioning**: Create point-in-time snapshots of daemon workspaces
-- **Space-efficient storage**: Automatic deduplication via content addressing
-- **Cross-platform compatibility**: Works on Linux, macOS, Windows without special privileges
-- **Future extensibility**: Designed to support fast kernel-based backends when root access is available
+- **VM Snapshots** (VMware/VirtualBox): State capture/restore
+- **ZFS/Btrfs Snapshots**: Filesystem-level snapshots
+- **Docker Layers**: Image layers with content addressing
+- **Time Machine**: Point-in-time backups
 
-**Key Design Decision:** Start with a pure userspace implementation (like Git) that works everywhere, with hooks for privileged optimizations later.
-
----
-
-## Background & Motivation
-
-### Problem Statement
-
-SandD agents need to:
-1. **Checkpoint workspace state** before/after tasks
-2. **Resume from previous states** if tasks fail
-3. **Rollback to known-good states**
-4. **Share common base workspaces** across multiple daemons efficiently
-
-### Constraints
-
-- **Unknown privilege level**: May run in unprivileged containers or as root on bare metal
-- **Cross-platform**: Must support Linux, macOS, Windows
-- **Unknown deployment**: Container, VM, bare metal, cloud, on-premise
-- **Variable workload**: From small config files to large codebases
-
-### Related Documentation
-
-This design builds on existing SandD architecture:
-
-- **[Protocol Specification](PROTOCOL.md)** - WebSocket message format for daemon communication
-- **[Tunnel Mode](TUNNEL.md)** - Secure networking with WireGuard/Tailscale
-- **[Architecture Details](../ARCHITECTURE.md)** - Overall system design
-
-**Snapshot integration points:**
-- Protocol: New message types for snapshot operations
-- Tunnel: Snapshots are local; future work may support remote snapshot transfer
-
----
-
-## Goals & Non-Goals
-
-### Goals
-
-**Primary Goals:**
-- ✅ Snapshot daemon workspaces in seconds (not milliseconds)
-- ✅ Restore to any previous snapshot
-- ✅ Deduplicate identical files across snapshots
-- ✅ Work on any platform without special privileges
-- ✅ Preserve file metadata (permissions, timestamps, symlinks)
-
-**Secondary Goals:**
-- ✅ Tag and describe snapshots
-- ✅ List and query snapshots
-- ✅ Garbage collect unreferenced objects
-- ✅ Compress large files (optional)
-- ✅ Support incremental snapshots (parent tracking)
-
-### Non-Goals
-
-**Explicitly Out of Scope:**
-- ❌ Block-level deduplication (file-level only in v1)
-- ❌ Branching and merging (Git-like branches not needed)
-- ❌ Network synchronization (local only)
-- ❌ Encryption (store plaintext objects)
-- ❌ Real-time filesystem overlay during execution
-- ❌ Process state preservation (filesystem only, not memory/CPU)
-
-**Future Work:**
-- ⏳ Chunked deduplication for large files (v2)
-- ⏳ Kernel-based backend when root available (v2)
-- ⏳ Remote snapshot storage (v3)
+We use Git's storage model (hierarchical trees, content-addressable) but with snapshot semantics (no version control features).
 
 ---
 
@@ -268,38 +214,6 @@ pub enum Response {
 
 ---
 
-## Performance Characteristics
-
-### Snapshot Creation
-
-| Workspace Size | Files | Size | Snapshot Time |
-|----------------|-------|------|---------------|
-| Small | 100 | 10MB | ~100ms |
-| Medium | 1,000 | 100MB | ~800ms |
-| Large | 10,000 | 1GB | ~5s |
-
-### Storage Efficiency
-
-**Deduplication example:**
-- 1GB workspace
-- 10 snapshots with 10% change rate per snapshot
-- **Storage:** ~2GB (vs 10GB for full copies)
-
----
-
-### Backend Selection Strategy
-
-```rust
-let backend = if can_use_docker() {
-    DockerBackend::new()      // ~50ms snapshots
-} else if can_use_overlayfs() {
-    OverlayfsBackend::new()   // ~20ms snapshots
-} else {
-    GitStyleBackend::new()    // ~500ms snapshots, works everywhere
-};
-```
-
----
 
 ## Example Usage
 
@@ -335,25 +249,6 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-```
-
----
-
-## Dependencies
-
-```toml
-[dependencies]
-blake3 = "1.5"          # Fast hashing
-walkdir = "2.4"         # Directory traversal
-uuid = { version = "1.11", features = ["v4", "serde"] }
-zstd = { version = "0.13", optional = true }  # Compression
-
-# Already in workspace
-tokio = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-anyhow = { workspace = true }
-tracing = { workspace = true }
 ```
 
 ---

@@ -15,6 +15,18 @@ categories = ["command-line-utilities"]
 name = "sandd"
 path = "src/main.rs"
 
+[lib]
+name = "sandd"
+path = "src/lib.rs"
+
+[[example]]
+name = "snapshot_simple"
+path = "../examples/snapshot_simple.rs"
+
+[[example]]
+name = "snapshot_real_project"
+path = "../examples/snapshot_real_project.rs"
+
 [dependencies]
 tokio = { workspace = true }
 serde = { workspace = true }
@@ -45,3 +57,17 @@ tokio-util = { version = "0.7", features = ["io"] }
 
 # Base64 for protocol
 base64 = "0.22"
+
+# Snapshot system
+blake3 = "1.5"
+walkdir = "2.4"
+chrono = { version = "0.4", features = ["serde"] }
+filetime = "0.2"
+
+[dev-dependencies]
+tempfile = "3.8"
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[[bench]]
+name = "snapshot_bench"
+harness = false

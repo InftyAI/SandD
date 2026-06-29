@@ -1,6 +1,7 @@
 mod executor;
 mod protocol;
 mod session;
+pub mod snapshot;
 
 use anyhow::{Context, Result};
 use clap::Parser;
