@@ -11,8 +11,7 @@ try:
     from ._core import Server as _RustServer, Session, TunnelConfig
 except ImportError as e:
     raise ImportError(
-        "Failed to import Rust extension. "
-        "Please build the package with: make install"
+        "Failed to import Rust extension. Please build the package with: make install"
     ) from e
 
 
@@ -54,12 +53,10 @@ class Server:
         port: int = 8765,
         connect: str = "direct",
         tunnel_config: Optional[TunnelConfig] = None,
-        verbose: bool = True
+        verbose: bool = True,
     ):
         if connect not in ["direct", "tunnel"]:
-            raise ValueError(
-                f"connect must be 'direct' or 'tunnel', got '{connect}'"
-            )
+            raise ValueError(f"connect must be 'direct' or 'tunnel', got '{connect}'")
 
         if connect == "tunnel" and tunnel_config is None:
             raise ValueError(
@@ -118,9 +115,7 @@ class Server:
             Each daemon processes commands sequentially to ensure predictable
             execution order and avoid resource conflicts.
         """
-        result = self._server.exec(
-            daemon_id, command, timeout, env, cwd
-        )
+        result = self._server.exec(daemon_id, command, timeout, env, cwd)
         return CommandResult(result)
 
     def new_session(
@@ -314,6 +309,7 @@ class Server:
         if sys.platform != "win32":
             import tty
             import termios
+
             old_settings = termios.tcgetattr(sys.stdin)
             try:
                 tty.setraw(sys.stdin.fileno())
@@ -341,15 +337,16 @@ class Server:
                     rlist, _, _ = select.select([sys.stdin], [], [], 0.01)
                     if rlist:
                         data = sys.stdin.read(1)
-                        if not data or data == '\x04':  # Ctrl+D
+                        if not data or data == "\x04":  # Ctrl+D
                             break
                         session.write(data.encode())
                 else:
                     # Windows - simple blocking read
                     import msvcrt
+
                     if msvcrt.kbhit():
                         data = msvcrt.getch()
-                        if data == b'\x04':  # Ctrl+D
+                        if data == b"\x04":  # Ctrl+D
                             break
                         session.write(data)
 
@@ -421,15 +418,23 @@ class Server:
                 return self.exec(daemon_id, command, timeout, env, cwd)
             except Exception as e:
                 # Create error result
-                return CommandResult(type('obj', (object,), {
-                    'stdout': '',
-                    'stderr': str(e),
-                    'exit_code': -1,
-                    'duration_ms': 0,
-                })())
+                return CommandResult(
+                    type(
+                        "obj",
+                        (object,),
+                        {
+                            "stdout": "",
+                            "stderr": str(e),
+                            "exit_code": -1,
+                            "duration_ms": 0,
+                        },
+                    )()
+                )
 
         results = {}
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(daemon_ids)) as executor:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=len(daemon_ids)
+        ) as executor:
             futures = {executor.submit(run_command, did): did for did in daemon_ids}
             for future in concurrent.futures.as_completed(futures):
                 daemon_id = futures[future]
@@ -670,7 +675,4 @@ class Server:
         return f"{self._host}:{self._port}"
 
     def __repr__(self) -> str:
-        return (
-            f"Server(address={self.address}, "
-            f"daemons={self.daemon_count()})"
-        )
+        return f"Server(address={self.address}, daemons={self.daemon_count()})"

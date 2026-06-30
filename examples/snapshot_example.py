@@ -39,6 +39,7 @@ def main():
 
         # Wait for at least one daemon to connect
         import time
+
         while server.daemon_count() == 0:
             time.sleep(0.5)
 
@@ -58,7 +59,7 @@ def main():
             tags=["v1.0", "initial"],
         )
         print(f"✅ Created snapshot 1: {snapshot_id1}")
-        print(f"   Tags: v1.0, initial\n")
+        print("   Tags: v1.0, initial\n")
 
         # Modify workspace
         (workspace_path / "file2.txt").write_text("Modified content")
@@ -71,7 +72,7 @@ def main():
             tags=["v1.1"],
         )
         print(f"✅ Created snapshot 2: {snapshot_id2}")
-        print(f"   Tags: v1.1\n")
+        print("   Tags: v1.1\n")
 
         # ========== 2. List All Snapshots ==========
         print("=" * 60)
@@ -103,9 +104,11 @@ def main():
         print("4️⃣  Finding Snapshot by Tag")
         print("=" * 60)
 
-        initial_snapshot = server.find_snapshot_by_tag(daemon_id=daemon_id, tag="initial")
+        initial_snapshot = server.find_snapshot_by_tag(
+            daemon_id=daemon_id, tag="initial"
+        )
         if initial_snapshot:
-            print(f"\n✅ Found snapshot with tag 'initial':")
+            print("\n✅ Found snapshot with tag 'initial':")
             print(f"   ID:      {initial_snapshot.id}")
             print(f"   Message: {initial_snapshot.message}")
         else:
@@ -118,7 +121,7 @@ def main():
 
         snapshot = server.get_snapshot(daemon_id=daemon_id, snapshot_id=snapshot_id1)
         if snapshot:
-            print(f"\n✅ Snapshot details:")
+            print("\n✅ Snapshot details:")
             print(f"   ID:         {snapshot.id}")
             print(f"   Message:    {snapshot.message}")
             print(f"   Tags:       {snapshot.tags}")
@@ -144,7 +147,7 @@ def main():
 
         # Verify restored files
         restored_files = list(restore_path.rglob("*"))
-        print(f"   Files in restored directory:")
+        print("   Files in restored directory:")
         for f in restored_files:
             if f.is_file():
                 print(f"   - {f.relative_to(restore_path)}")

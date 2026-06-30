@@ -7,8 +7,7 @@ try:
     from ._core import PyCommandResult, PyStats
 except ImportError as e:
     raise ImportError(
-        "Failed to import Rust extension. "
-        "Please build the package with: make install"
+        "Failed to import Rust extension. Please build the package with: make install"
     ) from e
 
 
@@ -116,10 +115,7 @@ class ServerStats:
         return self._stats.oldest_connection_secs
 
     def __repr__(self) -> str:
-        return (
-            f"ServerStats(total={self.total_daemons}, "
-            f"platforms={self.by_platform})"
-        )
+        return f"ServerStats(total={self.total_daemons}, platforms={self.by_platform})"
 
 
 class SnapshotInfo:

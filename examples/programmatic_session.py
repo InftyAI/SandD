@@ -78,14 +78,14 @@ def main():
     # Example 4: Create new session for long-running task
     print("\n=== Example 4: Long-Running Task ===")
     session2 = server.new_session(daemon_id)
-    session2.write(b"for i in 1 2 3; do echo \"Step $i\"; sleep 1; done\n")
+    session2.write(b'for i in 1 2 3; do echo "Step $i"; sleep 1; done\n')
 
     # Stream output as it arrives
     start = time.time()
     while time.time() - start < 5:
         output = session2.read(timeout=0.5)
         if output:
-            print(output.decode(), end='', flush=True)
+            print(output.decode(), end="", flush=True)
         else:
             break
 

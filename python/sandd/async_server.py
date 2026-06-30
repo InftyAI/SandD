@@ -157,12 +157,7 @@ class AsyncServer:
         """
         raise NotImplementedError("AsyncServer.get_stats() not yet implemented")
 
-    async def upload_file(
-        self,
-        daemon_id: str,
-        remote_path: str,
-        data: bytes
-    ) -> None:
+    async def upload_file(self, daemon_id: str, remote_path: str, data: bytes) -> None:
         """Upload file to daemon (async)
 
         Args:
@@ -172,11 +167,7 @@ class AsyncServer:
         """
         raise NotImplementedError("AsyncServer.upload_file() not yet implemented")
 
-    async def download_file(
-        self,
-        daemon_id: str,
-        remote_path: str
-    ) -> bytes:
+    async def download_file(self, daemon_id: str, remote_path: str) -> bytes:
         """Download file from daemon (async)
 
         Args:

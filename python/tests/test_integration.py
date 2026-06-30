@@ -5,6 +5,7 @@ These tests require the sandd binary to be built:
 
 Run with: pytest python/tests/test_integration.py -v -s
 """
+
 import pytest
 import subprocess
 import time
@@ -34,6 +35,7 @@ def server():
     """Create a server instance on a unique port"""
     # Use a different port for each test to avoid conflicts
     import random
+
     port = random.randint(9000, 9999)
     server = Server(host="127.0.0.1", port=port)
     yield server
@@ -98,7 +100,13 @@ class TestDaemonConnection:
                 server_url = f"ws://127.0.0.1:{server.address.split(':')[1]}/ws"
 
                 proc = subprocess.Popen(
-                    [sandd_binary, "--server-url", server_url, "--daemon-id", daemon_id],
+                    [
+                        sandd_binary,
+                        "--server-url",
+                        server_url,
+                        "--daemon-id",
+                        daemon_id,
+                    ],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
@@ -133,10 +141,14 @@ class TestDaemonConnection:
         proc_prod = subprocess.Popen(
             [
                 sandd_binary,
-                "--server-url", server_url,
-                "--daemon-id", daemon_id_prod,
-                "--label", "env=prod",
-                "--label", "region=us-west",
+                "--server-url",
+                server_url,
+                "--daemon-id",
+                daemon_id_prod,
+                "--label",
+                "env=prod",
+                "--label",
+                "region=us-west",
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -147,9 +159,12 @@ class TestDaemonConnection:
         proc_dev = subprocess.Popen(
             [
                 sandd_binary,
-                "--server-url", server_url,
-                "--daemon-id", daemon_id_dev,
-                "--label", "env=dev",
+                "--server-url",
+                server_url,
+                "--daemon-id",
+                daemon_id_dev,
+                "--label",
+                "env=dev",
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -229,7 +244,7 @@ class TestCommandExecution:
         daemon_id, _ = daemon_process
 
         env = {"TEST_VAR": "test_value_123"}
-        if os.name == 'nt':  # Windows
+        if os.name == "nt":  # Windows
             cmd = "echo %TEST_VAR%"
         else:  # Unix
             cmd = "echo $TEST_VAR"
@@ -258,7 +273,7 @@ class TestCommandExecution:
         result = server.exec(daemon_id, cmd, timeout=10)
 
         assert result.success
-        assert result.stdout.count('\n') >= 1000
+        assert result.stdout.count("\n") >= 1000
 
     def test_command_timeout(self, server, daemon_process):
         """Test command timeout handling"""
@@ -309,10 +324,14 @@ class TestGetDaemon:
         proc = subprocess.Popen(
             [
                 sandd_binary,
-                "--server-url", server_url,
-                "--daemon-id", daemon_id,
-                "--label", "env=staging",
-                "--label", "team=backend",
+                "--server-url",
+                server_url,
+                "--daemon-id",
+                daemon_id,
+                "--label",
+                "env=staging",
+                "--label",
+                "team=backend",
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -418,6 +437,7 @@ class TestGetDaemon:
         assert daemon_after is not None
         assert daemon_after.is_busy is False
 
+
 class TestServerStats:
     """Test server statistics with real connections"""
 
@@ -443,8 +463,10 @@ class TestServerStats:
         assert len(platforms) > 0
 
         # Common platform names (Rust's std::env::consts::OS values)
-        assert any(p in ["linux", "macos", "windows", "Linux", "Darwin", "Windows"]
-                  for p in platforms)
+        assert any(
+            p in ["linux", "macos", "windows", "Linux", "Darwin", "Windows"]
+            for p in platforms
+        )
 
 
 # class TestFileTransfer:
@@ -518,6 +540,7 @@ class TestWaitForDaemon:
 
         # Start waiting in one "thread" (we'll simulate with timing)
         import threading
+
         result_holder = {"connected": False}
 
         def wait_thread():
@@ -548,8 +571,7 @@ class TestWaitForDaemon:
 
 
 @pytest.mark.skipif(
-    not DAEMON_BINARY.exists(),
-    reason="Requires compiled daemon binary"
+    not DAEMON_BINARY.exists(), reason="Requires compiled daemon binary"
 )
 class TestSession:
     """Test interactive sessions"""
@@ -569,8 +591,8 @@ class TestSession:
 
         # Should contain our echo
         if output:
-            output_str = output.decode('utf-8', errors='ignore')
-            assert 'test123' in output_str or 'echo' in output_str
+            output_str = output.decode("utf-8", errors="ignore")
+            assert "test123" in output_str or "echo" in output_str
 
         # Close session
         session.close()

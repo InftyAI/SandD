@@ -5,6 +5,7 @@ Run with: make test-e2e
 These tests are marked as 'e2e' and skipped by default in 'make test'.
 Use 'make test-e2e' to run them explicitly.
 """
+
 import pytest
 import time
 import subprocess
@@ -22,21 +23,20 @@ def docker_daemons():
     subprocess.run(
         ["docker", "compose", "-f", compose_file, "build"],
         check=True,
-        capture_output=True
+        capture_output=True,
     )
 
     subprocess.run(
         ["docker", "compose", "-f", compose_file, "up", "-d"],
         check=True,
-        capture_output=True
+        capture_output=True,
     )
 
     yield
 
     # Cleanup
     subprocess.run(
-        ["docker", "compose", "-f", compose_file, "down"],
-        capture_output=True
+        ["docker", "compose", "-f", compose_file, "down"], capture_output=True
     )
 
 
@@ -47,9 +47,12 @@ def server(docker_daemons):
 
     # Wait for all daemons to connect (2 debian + 2 alpine + 2 rocky)
     daemon_ids = [
-        "daemon-debian-1", "daemon-debian-2",
-        "daemon-alpine-1", "daemon-alpine-2",
-        "daemon-rocky-1", "daemon-rocky-2"
+        "daemon-debian-1",
+        "daemon-debian-2",
+        "daemon-alpine-1",
+        "daemon-alpine-2",
+        "daemon-rocky-1",
+        "daemon-rocky-2",
     ]
     for daemon_id in daemon_ids:
         connected = srv.wait_for_daemon(daemon_id, timeout=15.0)
@@ -67,9 +70,12 @@ class TestE2EBasicOperations:
         daemons = server.list_daemons()
         daemon_ids = [d.id for d in daemons]
         expected = [
-            "daemon-debian-1", "daemon-debian-2",
-            "daemon-alpine-1", "daemon-alpine-2",
-            "daemon-rocky-1", "daemon-rocky-2"
+            "daemon-debian-1",
+            "daemon-debian-2",
+            "daemon-alpine-1",
+            "daemon-alpine-2",
+            "daemon-rocky-1",
+            "daemon-rocky-2",
         ]
         for daemon_id in expected:
             assert daemon_id in daemon_ids
@@ -78,16 +84,15 @@ class TestE2EBasicOperations:
     def test_execute_on_each_daemon(self, server):
         """Execute commands on each daemon across all distributions"""
         daemon_ids = [
-            "daemon-debian-1", "daemon-debian-2",
-            "daemon-alpine-1", "daemon-alpine-2",
-            "daemon-rocky-1", "daemon-rocky-2"
+            "daemon-debian-1",
+            "daemon-debian-2",
+            "daemon-alpine-1",
+            "daemon-alpine-2",
+            "daemon-rocky-1",
+            "daemon-rocky-2",
         ]
         for daemon_id in daemon_ids:
-            result = server.exec(
-                daemon_id,
-                "echo 'Hello from container'",
-                timeout=5
-            )
+            result = server.exec(daemon_id, "echo 'Hello from container'", timeout=5)
             assert result.success
             assert "Hello from container" in result.stdout
 
@@ -95,15 +100,11 @@ class TestE2EBasicOperations:
         """Execute commands concurrently on multiple daemons"""
         import concurrent.futures
 
-        daemon_ids = [
-            "daemon-debian-1", "daemon-alpine-1", "daemon-rocky-1"
-        ]
+        daemon_ids = ["daemon-debian-1", "daemon-alpine-1", "daemon-rocky-1"]
 
         def run_cmd(daemon_id):
             return server.exec(
-                daemon_id,
-                f"echo 'Response from {daemon_id}'",
-                timeout=5
+                daemon_id, f"echo 'Response from {daemon_id}'", timeout=5
             )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
@@ -120,7 +121,9 @@ class TestE2EBasicOperations:
         daemon_id = "daemon-debian-1"
 
         def run_sleep(n):
-            result = server.exec(daemon_id, f"sleep {n} && echo 'slept {n}s'", timeout=10)
+            result = server.exec(
+                daemon_id, f"sleep {n} && echo 'slept {n}s'", timeout=10
+            )
             return result
 
         def run_fast():
@@ -153,8 +156,7 @@ class TestE2EBroadcast:
     def test_broadcast_simple_command(self, server):
         """Broadcast a simple command to multiple daemons"""
         results = server.broadcast(
-            labels={"env": "test"},
-            command="echo 'hello from broadcast'"
+            labels={"env": "test"}, command="echo 'hello from broadcast'"
         )
 
         # Should have 4 test daemons
@@ -168,8 +170,7 @@ class TestE2EBroadcast:
     def test_broadcast_with_multiple_labels(self, server):
         """Broadcast with multiple label filters (AND logic)"""
         results = server.broadcast(
-            labels={"env": "test", "distro": "debian"},
-            command="hostname"
+            labels={"env": "test", "distro": "debian"}, command="hostname"
         )
 
         # Should match only debian test daemons
@@ -182,20 +183,14 @@ class TestE2EBroadcast:
 
     def test_broadcast_no_matching_daemons(self, server):
         """Broadcast with labels that match no daemons"""
-        results = server.broadcast(
-            labels={"env": "nonexistent"},
-            command="hostname"
-        )
+        results = server.broadcast(labels={"env": "nonexistent"}, command="hostname")
 
         # Should return empty dict
         assert len(results) == 0
 
     def test_broadcast_with_failure(self, server):
         """Broadcast command that fails on some daemons"""
-        results = server.broadcast(
-            labels={"env": "prod"},
-            command="exit 1"
-        )
+        results = server.broadcast(labels={"env": "prod"}, command="exit 1")
 
         # Should have results for prod daemons
         assert len(results) == 2
@@ -210,10 +205,7 @@ class TestE2EBroadcast:
 
         # Broadcast a 2-second sleep to test daemons
         start = time.time()
-        results = server.broadcast(
-            labels={"env": "test"},
-            command="sleep 2"
-        )
+        results = server.broadcast(labels={"env": "test"}, command="sleep 2")
         duration = time.time() - start
 
         # Should complete in ~2-3 seconds (concurrent), not 8+ seconds (serial)
@@ -273,7 +265,7 @@ class TestE2EResilience:
         subprocess.run(
             ["docker", "restart", "sandd-daemon-debian-1"],
             check=True,
-            capture_output=True
+            capture_output=True,
         )
 
         # Wait for reconnection
@@ -303,9 +295,7 @@ class TestE2EDistributionSpecific:
     def test_package_manager_debian(self, server):
         """Test apt package manager on Debian daemons"""
         result = server.exec(
-            "daemon-debian-1",
-            "apt-get update && apt-get install -y curl",
-            timeout=60
+            "daemon-debian-1", "apt-get update && apt-get install -y curl", timeout=60
         )
         assert result.success
 
@@ -316,9 +306,7 @@ class TestE2EDistributionSpecific:
     def test_package_manager_alpine(self, server):
         """Test apk package manager on Alpine daemons"""
         result = server.exec(
-            "daemon-alpine-1",
-            "apk update && apk add curl",
-            timeout=60
+            "daemon-alpine-1", "apk update && apk add curl", timeout=60
         )
         assert result.success
 
@@ -328,11 +316,7 @@ class TestE2EDistributionSpecific:
 
     def test_package_manager_rocky(self, server):
         """Test dnf package manager on Rocky daemons"""
-        result = server.exec(
-            "daemon-rocky-1",
-            "microdnf install -y curl",
-            timeout=60
-        )
+        result = server.exec("daemon-rocky-1", "microdnf install -y curl", timeout=60)
         assert result.success
 
         result = server.exec("daemon-rocky-1", "curl --version", timeout=5)
@@ -341,11 +325,7 @@ class TestE2EDistributionSpecific:
 
     def test_all_distros_run_same_command(self, server):
         """Verify all distributions can run common commands"""
-        daemon_ids = [
-            "daemon-debian-1",
-            "daemon-alpine-1",
-            "daemon-rocky-1"
-        ]
+        daemon_ids = ["daemon-debian-1", "daemon-alpine-1", "daemon-rocky-1"]
         for daemon_id in daemon_ids:
             result = server.exec(daemon_id, "uname -s", timeout=5)
             assert result.success
@@ -370,19 +350,15 @@ class TestE2ESessionSessions:
             # Read output
             output = session.read(timeout=2.0)
             assert output is not None
-            output_str = output.decode('utf-8', errors='ignore')
-            assert 'Hello from session' in output_str
+            output_str = output.decode("utf-8", errors="ignore")
+            assert "Hello from session" in output_str
 
         finally:
             session.close()
 
     def test_session_across_distributions(self, server):
         """Test session works on all distributions"""
-        daemon_ids = [
-            "daemon-debian-1",
-            "daemon-alpine-1",
-            "daemon-rocky-1"
-        ]
+        daemon_ids = ["daemon-debian-1", "daemon-alpine-1", "daemon-rocky-1"]
 
         for daemon_id in daemon_ids:
             session = server.new_session(daemon_id)
@@ -414,7 +390,7 @@ class TestE2ESessionSessions:
             time.sleep(0.5)
 
             # Read all output chunks
-            all_output = b''
+            all_output = b""
             for _ in range(5):
                 output = session.read(timeout=0.5)
                 if output:
@@ -423,9 +399,9 @@ class TestE2ESessionSessions:
                     break
 
             assert all_output
-            output_str = all_output.decode('utf-8', errors='ignore')
+            output_str = all_output.decode("utf-8", errors="ignore")
             # Should see the numbers
-            assert '1' in output_str and '2' in output_str and '3' in output_str
+            assert "1" in output_str and "2" in output_str and "3" in output_str
 
         finally:
             session.close()
@@ -448,8 +424,8 @@ class TestE2ESessionSessions:
 
             output = session.read(timeout=2.0)
             assert output is not None
-            output_str = output.decode('utf-8', errors='ignore')
-            assert 'test123' in output_str
+            output_str = output.decode("utf-8", errors="ignore")
+            assert "test123" in output_str
 
         finally:
             session.close()
@@ -472,8 +448,8 @@ class TestE2ESessionSessions:
 
             output = session.read(timeout=2.0)
             assert output is not None
-            output_str = output.decode('utf-8', errors='ignore')
-            assert '/tmp' in output_str
+            output_str = output.decode("utf-8", errors="ignore")
+            assert "/tmp" in output_str
 
         finally:
             session.close()
@@ -488,14 +464,13 @@ class TestE2ESnapshots:
 
         # Create a test workspace
         server.exec(daemon_id, "mkdir -p /tmp/test-workspace", timeout=5)
-        server.exec(daemon_id, "echo 'test content' > /tmp/test-workspace/file.txt", timeout=5)
+        server.exec(
+            daemon_id, "echo 'test content' > /tmp/test-workspace/file.txt", timeout=5
+        )
 
         # Create snapshot
         snapshot_id = server.create_snapshot(
-            daemon_id,
-            "/tmp/test-workspace",
-            message="Test snapshot",
-            tags=["test"]
+            daemon_id, "/tmp/test-workspace", message="Test snapshot", tags=["test"]
         )
         assert snapshot_id is not None
         assert len(snapshot_id) > 0
@@ -522,9 +497,7 @@ class TestE2ESnapshots:
 
         # Create snapshot
         snapshot_id = server.create_snapshot(
-            daemon_id,
-            "/tmp/source",
-            message="Original state"
+            daemon_id, "/tmp/source", message="Original state"
         )
 
         # Verify snapshot created
@@ -532,11 +505,7 @@ class TestE2ESnapshots:
         assert any(s.id == snapshot_id for s in snapshots)
 
         # Restore to different location
-        file_count = server.restore_snapshot(
-            daemon_id,
-            snapshot_id,
-            "/tmp/restored"
-        )
+        file_count = server.restore_snapshot(daemon_id, snapshot_id, "/tmp/restored")
         assert file_count > 0
 
         # Verify restored content
@@ -557,7 +526,7 @@ class TestE2ESnapshots:
             daemon_id,
             "/tmp/multi-tag",
             message="Multi-tagged",
-            tags=["v1.0.0", "stable", "production"]
+            tags=["v1.0.0", "stable", "production"],
         )
 
         # List by different tags
@@ -579,9 +548,7 @@ class TestE2ESnapshots:
 
         # Create first snapshot with tag
         snapshot_id1 = server.create_snapshot(
-            daemon_id,
-            "/tmp/immutable-tag",
-            tags=["unique-tag"]
+            daemon_id, "/tmp/immutable-tag", tags=["unique-tag"]
         )
         assert snapshot_id1 is not None
 
@@ -589,11 +556,7 @@ class TestE2ESnapshots:
         server.exec(daemon_id, "echo 'second' > /tmp/immutable-tag/data.txt", timeout=5)
 
         with pytest.raises(Exception) as exc_info:
-            server.create_snapshot(
-                daemon_id,
-                "/tmp/immutable-tag",
-                tags=["unique-tag"]
-            )
+            server.create_snapshot(daemon_id, "/tmp/immutable-tag", tags=["unique-tag"])
         assert "already exists" in str(exc_info.value).lower()
 
     def test_delete_snapshot(self, server):
@@ -602,14 +565,13 @@ class TestE2ESnapshots:
 
         # Create workspace
         server.exec(daemon_id, "mkdir -p /tmp/delete-test", timeout=5)
-        server.exec(daemon_id, "echo 'to delete' > /tmp/delete-test/file.txt", timeout=5)
+        server.exec(
+            daemon_id, "echo 'to delete' > /tmp/delete-test/file.txt", timeout=5
+        )
 
         # Create snapshot with tag
         snapshot_id = server.create_snapshot(
-            daemon_id,
-            "/tmp/delete-test",
-            message="Will be deleted",
-            tags=["delete-me"]
+            daemon_id, "/tmp/delete-test", message="Will be deleted", tags=["delete-me"]
         )
 
         # Verify snapshot exists
@@ -627,7 +589,7 @@ class TestE2ESnapshots:
         snapshot_id2 = server.create_snapshot(
             daemon_id,
             "/tmp/delete-test",
-            tags=["delete-me"]  # Should work now
+            tags=["delete-me"],  # Should work now
         )
         assert snapshot_id2 is not None
         assert snapshot_id2 != snapshot_id
@@ -645,7 +607,7 @@ class TestE2ESnapshots:
             daemon_id,
             "/tmp/find-test",
             message="Find me by tag",
-            tags=["unique-find-tag"]
+            tags=["unique-find-tag"],
         )
 
         # Find by tag
@@ -673,7 +635,7 @@ class TestE2ESnapshots:
             daemon_id,
             "/tmp/get-test",
             message="Get test snapshot",
-            tags=["get-tag-1", "get-tag-2"]
+            tags=["get-tag-1", "get-tag-2"],
         )
 
         # Get snapshot details
@@ -701,25 +663,31 @@ class TestE2ESnapshots:
 
         # Create snapshot
         snapshot_id = server.create_snapshot(
-            daemon_id,
-            "/tmp/nested",
-            message="Nested structure"
+            daemon_id, "/tmp/nested", message="Nested structure"
         )
 
         # Restore
         server.restore_snapshot(daemon_id, snapshot_id, "/tmp/restored-nested")
 
         # Verify all files and structure
-        result1 = server.exec(daemon_id, "cat /tmp/restored-nested/file1.txt", timeout=5)
+        result1 = server.exec(
+            daemon_id, "cat /tmp/restored-nested/file1.txt", timeout=5
+        )
         assert result1.success and "file1" in result1.stdout
 
-        result2 = server.exec(daemon_id, "cat /tmp/restored-nested/a/file2.txt", timeout=5)
+        result2 = server.exec(
+            daemon_id, "cat /tmp/restored-nested/a/file2.txt", timeout=5
+        )
         assert result2.success and "file2" in result2.stdout
 
-        result3 = server.exec(daemon_id, "cat /tmp/restored-nested/a/b/file3.txt", timeout=5)
+        result3 = server.exec(
+            daemon_id, "cat /tmp/restored-nested/a/b/file3.txt", timeout=5
+        )
         assert result3.success and "file3" in result3.stdout
 
-        result4 = server.exec(daemon_id, "cat /tmp/restored-nested/a/b/c/file4.txt", timeout=5)
+        result4 = server.exec(
+            daemon_id, "cat /tmp/restored-nested/a/b/c/file4.txt", timeout=5
+        )
         assert result4.success and "file4" in result4.stdout
 
     def test_snapshot_binary_files(self, server):
@@ -729,29 +697,37 @@ class TestE2ESnapshots:
         # Create workspace with binary file
         server.exec(daemon_id, "mkdir -p /tmp/binary-test", timeout=5)
         # Create a small binary file
-        server.exec(daemon_id, "dd if=/dev/urandom of=/tmp/binary-test/random.bin bs=1024 count=10", timeout=5)
+        server.exec(
+            daemon_id,
+            "dd if=/dev/urandom of=/tmp/binary-test/random.bin bs=1024 count=10",
+            timeout=5,
+        )
 
         # Get checksum before snapshot
-        result_before = server.exec(daemon_id, "md5sum /tmp/binary-test/random.bin", timeout=5)
+        result_before = server.exec(
+            daemon_id, "md5sum /tmp/binary-test/random.bin", timeout=5
+        )
         assert result_before.success
         checksum_before = result_before.stdout.split()[0]
 
         # Create snapshot
         snapshot_id = server.create_snapshot(
-            daemon_id,
-            "/tmp/binary-test",
-            message="Binary file test"
+            daemon_id, "/tmp/binary-test", message="Binary file test"
         )
 
         # Restore
         server.restore_snapshot(daemon_id, snapshot_id, "/tmp/restored-binary")
 
         # Verify checksum matches
-        result_after = server.exec(daemon_id, "md5sum /tmp/restored-binary/random.bin", timeout=5)
+        result_after = server.exec(
+            daemon_id, "md5sum /tmp/restored-binary/random.bin", timeout=5
+        )
         assert result_after.success
         checksum_after = result_after.stdout.split()[0]
 
-        assert checksum_before == checksum_after, "Binary file corrupted during snapshot/restore"
+        assert checksum_before == checksum_after, (
+            "Binary file corrupted during snapshot/restore"
+        )
 
     def test_snapshot_deduplication(self, server):
         """Verify deduplication works (same content = same storage)"""
@@ -759,15 +735,19 @@ class TestE2ESnapshots:
 
         # Create workspace with duplicate content
         server.exec(daemon_id, "mkdir -p /tmp/dedup-test", timeout=5)
-        server.exec(daemon_id, "echo 'same content' > /tmp/dedup-test/file1.txt", timeout=5)
-        server.exec(daemon_id, "echo 'same content' > /tmp/dedup-test/file2.txt", timeout=5)
-        server.exec(daemon_id, "echo 'same content' > /tmp/dedup-test/file3.txt", timeout=5)
+        server.exec(
+            daemon_id, "echo 'same content' > /tmp/dedup-test/file1.txt", timeout=5
+        )
+        server.exec(
+            daemon_id, "echo 'same content' > /tmp/dedup-test/file2.txt", timeout=5
+        )
+        server.exec(
+            daemon_id, "echo 'same content' > /tmp/dedup-test/file3.txt", timeout=5
+        )
 
         # Create snapshot
         snapshot_id = server.create_snapshot(
-            daemon_id,
-            "/tmp/dedup-test",
-            message="Dedup test"
+            daemon_id, "/tmp/dedup-test", message="Dedup test"
         )
 
         # Get snapshot info
@@ -778,12 +758,16 @@ class TestE2ESnapshots:
         assert snapshot.file_count == 3
         # Size should be close to 13 bytes (one copy), not 39 bytes (three copies)
         # Allow some overhead for tree structures
-        assert snapshot.total_size < 100, f"Expected deduplication, got {snapshot.total_size} bytes"
+        assert snapshot.total_size < 100, (
+            f"Expected deduplication, got {snapshot.total_size} bytes"
+        )
 
         # Verify all files restored correctly
         server.restore_snapshot(daemon_id, snapshot_id, "/tmp/restored-dedup")
         for i in range(1, 4):
-            result = server.exec(daemon_id, f"cat /tmp/restored-dedup/file{i}.txt", timeout=5)
+            result = server.exec(
+                daemon_id, f"cat /tmp/restored-dedup/file{i}.txt", timeout=5
+            )
             assert result.success
             assert "same content" in result.stdout
 
