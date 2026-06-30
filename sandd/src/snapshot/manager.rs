@@ -302,9 +302,6 @@ impl SnapshotManager {
                     None => anyhow::bail!("Tag '{}' does not exist", tag),
                 }
             }
-            // Deduplicate: multiple tags may point to same snapshot
-            ids.sort();
-            ids.dedup();
             ids
         } else {
             // No filter: load all snapshots
@@ -329,8 +326,14 @@ impl SnapshotManager {
             snapshots.push(snapshot.into());
         }
 
-        // Sort by creation time (newest first)
-        snapshots.sort_by(|a: &SnapshotInfo, b: &SnapshotInfo| b.created_at.cmp(&a.created_at));
+        // Sort by creation time (newest first), then deduplicate by ID
+        // Note: when filtering by tags, multiple tags may point to same snapshot
+        snapshots.sort_by(|a: &SnapshotInfo, b: &SnapshotInfo| {
+            b.created_at.cmp(&a.created_at).then_with(|| a.id.cmp(&b.id))
+        });
+
+        // Deduplicate by ID (keep first occurrence = newest due to sort)
+        snapshots.dedup_by(|a, b| a.id == b.id);
 
         Ok(snapshots)
     }
