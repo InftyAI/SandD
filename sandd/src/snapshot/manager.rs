@@ -54,6 +54,12 @@ impl SnapshotManager {
             Self::validate_tag_name(tag)?;
         }
 
+        // Create snapshot metadata (store tags in snapshot file)
+        let created_at = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| anyhow::anyhow!("System time error: {}", e))?
+            .as_secs();
+
         // Check tag existence upfront (still has TOCTOU, but add_tag uses atomic write)
         for tag in &tags {
             let tag_file = self.tags_dir.join(tag);
@@ -66,12 +72,6 @@ impl SnapshotManager {
 
         // Build tree recursively
         let (tree_hash, file_count, total_size) = self.build_tree(workspace).await?;
-
-        // Create snapshot metadata (store tags in snapshot file)
-        let created_at = SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| anyhow::anyhow!("System time error: {}", e))?
-            .as_secs();
 
         let snapshot = Snapshot {
             id: snapshot_id.clone(),
@@ -329,7 +329,9 @@ impl SnapshotManager {
         // Sort by creation time (newest first), then deduplicate by ID
         // Note: when filtering by tags, multiple tags may point to same snapshot
         snapshots.sort_by(|a: &SnapshotInfo, b: &SnapshotInfo| {
-            b.created_at.cmp(&a.created_at).then_with(|| a.id.cmp(&b.id))
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| a.id.cmp(&b.id))
         });
 
         // Deduplicate by ID (keep first occurrence = newest due to sort)
@@ -581,7 +583,7 @@ mod tests {
             .unwrap();
 
         // sleep for a while to ensure different timestamps
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
         let _id2 = manager
             .create_snapshot(
