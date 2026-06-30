@@ -200,7 +200,8 @@ impl SnapshotManager {
         Ok(())
     }
 
-    /// Restore tree recursively (always clean - deletes extras after successful restore)
+    /// Restore tree recursively (restores snapshot entries, then attempts to
+    /// delete extra entries; cleanup failures are logged)
     fn restore_tree<'a>(
         &'a self,
         tree_hash: &'a str,
@@ -214,11 +215,8 @@ impl SnapshotManager {
             let tree: Tree = serde_json::from_slice(&tree_json)?;
 
             // Build set of expected names in this directory (owned strings to avoid borrow issues)
-            let expected_names: std::collections::HashSet<String> = tree
-                .entries
-                .iter()
-                .map(|e| e.name.clone())
-                .collect();
+            let expected_names: std::collections::HashSet<String> =
+                tree.entries.iter().map(|e| e.name.clone()).collect();
 
             // Phase 1: Restore each entry from snapshot
             // Do this FIRST - if restore fails, extras remain untouched (safer)
@@ -300,13 +298,21 @@ impl SnapshotManager {
                     let path = entry.path();
 
                     // Not in snapshot - delete it
-                    if path.is_dir() {
-                        if let Err(e) = fs::remove_dir_all(&path).await {
-                            tracing::warn!("Failed to delete directory {}: {}", path.display(), e);
+                    // Use symlink_metadata (async, no symlink follow) for consistency
+                    match fs::symlink_metadata(&path).await {
+                        Ok(metadata) => {
+                            if metadata.is_dir() {
+                                if let Err(e) = fs::remove_dir_all(&path).await {
+                                    tracing::warn!("Failed to delete directory {}: {}", path.display(), e);
+                                }
+                            } else {
+                                if let Err(e) = fs::remove_file(&path).await {
+                                    tracing::warn!("Failed to delete file {}: {}", path.display(), e);
+                                }
+                            }
                         }
-                    } else {
-                        if let Err(e) = fs::remove_file(&path).await {
-                            tracing::warn!("Failed to delete file {}: {}", path.display(), e);
+                        Err(e) => {
+                            tracing::warn!("Failed to stat {}: {}", path.display(), e);
                         }
                     }
                 }
