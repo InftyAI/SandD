@@ -610,7 +610,7 @@ class Server:
         self,
         daemon_id: str,
         snapshot_id: str,
-    ) -> SnapshotInfo:
+    ) -> Optional[SnapshotInfo]:
         """Get snapshot info from daemon
 
         Args:
@@ -618,17 +618,23 @@ class Server:
             snapshot_id: Snapshot ID
 
         Returns:
-            Snapshot info
+            Snapshot info, or None if not found
 
         Raises:
-            ValueError: If daemon or snapshot not found
+            ValueError: If daemon not found
+            RuntimeError: If communication error
 
         Example:
             >>> snapshot = server.get_snapshot("daemon-1", "snap-abc-123")
-            >>> print(f"Message: {snapshot.message}")
-            >>> print(f"Tags: {snapshot.tags}")
+            >>> if snapshot:
+            ...     print(f"Message: {snapshot.message}")
+            ...     print(f"Tags: {snapshot.tags}")
+            ... else:
+            ...     print("Snapshot not found")
         """
         result = self._server.get_snapshot(daemon_id, snapshot_id)
+        if result is None:
+            return None
         return SnapshotInfo(
             id=result["id"],
             created_at=result["created_at"],

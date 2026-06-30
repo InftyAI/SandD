@@ -541,13 +541,13 @@ impl Server {
         })
     }
 
-    /// Get snapshot details
+    /// Get snapshot details (returns None if not found)
     fn get_snapshot(
         &self,
         py: Python,
         daemon_id: String,
         snapshot_id: String,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Option<PyObject>> {
         let conn = self
             .registry
             .get(&daemon_id)
@@ -572,11 +572,12 @@ impl Server {
                     Ok(Ok(Message::SnapshotDetails { snapshot: Some(snapshot), .. })) => {
                         Python::with_gil(|py| {
                             pythonize::pythonize(py, &snapshot)
+                                .map(Some)
                                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))
                         })
                     }
                     Ok(Ok(Message::SnapshotDetails { snapshot: None, .. })) => {
-                        Err(PyRuntimeError::new_err("Snapshot not found"))
+                        Ok(None)
                     }
                     Ok(Ok(Message::SnapshotError { error, .. })) => {
                         Err(PyRuntimeError::new_err(format!("Get error: {}", error)))
