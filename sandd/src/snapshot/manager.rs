@@ -200,7 +200,7 @@ impl SnapshotManager {
         Ok(())
     }
 
-    /// Restore tree recursively
+    /// Restore tree recursively (always clean - deletes extras after successful restore)
     fn restore_tree<'a>(
         &'a self,
         tree_hash: &'a str,
@@ -209,11 +209,19 @@ impl SnapshotManager {
         Box::pin(async move {
             fs::create_dir_all(dest).await?;
 
-            // Load tree object
+            // Load tree object - tells us what SHOULD exist
             let tree_json = self.store.get_blob(tree_hash).await?;
             let tree: Tree = serde_json::from_slice(&tree_json)?;
 
-            // Restore each entry
+            // Build set of expected names in this directory (owned strings to avoid borrow issues)
+            let expected_names: std::collections::HashSet<String> = tree
+                .entries
+                .iter()
+                .map(|e| e.name.clone())
+                .collect();
+
+            // Phase 1: Restore each entry from snapshot
+            // Do this FIRST - if restore fails, extras remain untouched (safer)
             for entry in tree.entries {
                 let entry_path = dest.join(&entry.name);
 
@@ -276,6 +284,29 @@ impl SnapshotManager {
                             } else {
                                 tokio::fs::symlink_file(target, &entry_path).await?;
                             }
+                        }
+                    }
+                }
+            }
+
+            // Phase 2: Clean this directory - delete extras (only after successful restore)
+            // Cleanup failures are warned but don't fail the operation
+            let mut read_dir = fs::read_dir(dest).await?;
+            while let Some(entry) = read_dir.next_entry().await? {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy().to_string();
+
+                if !expected_names.contains(&name_str) {
+                    let path = entry.path();
+
+                    // Not in snapshot - delete it
+                    if path.is_dir() {
+                        if let Err(e) = fs::remove_dir_all(&path).await {
+                            tracing::warn!("Failed to delete directory {}: {}", path.display(), e);
+                        }
+                    } else {
+                        if let Err(e) = fs::remove_file(&path).await {
+                            tracing::warn!("Failed to delete file {}: {}", path.display(), e);
                         }
                     }
                 }
@@ -1188,5 +1219,70 @@ mod tests {
         // Should error instead of returning empty list
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("does not exist"));
+    }
+
+    #[tokio::test]
+    async fn test_restore_always_clean() {
+        let temp_dir = TempDir::new().unwrap();
+        let store_dir = temp_dir.path().join("store");
+        let workspace = temp_dir.path().join("workspace");
+        let restore_dir = temp_dir.path().join("restored");
+
+        // Create snapshot with specific files
+        fs::create_dir_all(&workspace).await.unwrap();
+        fs::write(workspace.join("file1.txt"), "content1")
+            .await
+            .unwrap();
+        fs::create_dir_all(workspace.join("dir1")).await.unwrap();
+        fs::write(workspace.join("dir1/file2.txt"), "content2")
+            .await
+            .unwrap();
+
+        let manager = SnapshotManager::new(store_dir).unwrap();
+        let snapshot_id = manager
+            .create_snapshot(&workspace, Some("Clean test".to_string()), None)
+            .await
+            .unwrap();
+
+        // Restore to directory with extra files
+        fs::create_dir_all(&restore_dir).await.unwrap();
+        fs::write(restore_dir.join("extra_file.txt"), "should be deleted")
+            .await
+            .unwrap();
+        fs::create_dir_all(restore_dir.join("extra_dir"))
+            .await
+            .unwrap();
+        fs::write(restore_dir.join("extra_dir/nested.txt"), "also deleted")
+            .await
+            .unwrap();
+        fs::create_dir_all(restore_dir.join("dir1")).await.unwrap();
+        fs::write(restore_dir.join("dir1/extra_in_dir.txt"), "delete me")
+            .await
+            .unwrap();
+
+        // Restore snapshot (should clean extras)
+        manager
+            .restore_snapshot(&snapshot_id, &restore_dir)
+            .await
+            .unwrap();
+
+        // Verify exact match - only snapshot files exist
+        assert!(restore_dir.join("file1.txt").exists());
+        assert!(restore_dir.join("dir1/file2.txt").exists());
+
+        // Verify extras are deleted
+        assert!(!restore_dir.join("extra_file.txt").exists());
+        assert!(!restore_dir.join("extra_dir").exists());
+        assert!(!restore_dir.join("dir1/extra_in_dir.txt").exists());
+
+        // Verify content is correct
+        let content1 = fs::read_to_string(restore_dir.join("file1.txt"))
+            .await
+            .unwrap();
+        assert_eq!(content1, "content1");
+        let content2 = fs::read_to_string(restore_dir.join("dir1/file2.txt"))
+            .await
+            .unwrap();
+        assert_eq!(content2, "content2");
     }
 }
