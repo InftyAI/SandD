@@ -514,7 +514,7 @@ where
             let result = snapshot_manager.find_snapshot_by_tag(&tag).await;
 
             let response = match result {
-                Ok(snapshot) => Message::SnapshotFound {
+                Ok(snapshot) => Message::SnapshotDetails {
                     request_id,
                     snapshot,
                 },
@@ -541,7 +541,7 @@ where
             let response = match result {
                 Ok(snapshot_info) => Message::SnapshotDetails {
                     request_id,
-                    snapshot: snapshot_info,
+                    snapshot: Some(snapshot_info),
                 },
                 Err(e) => Message::SnapshotError {
                     request_id,

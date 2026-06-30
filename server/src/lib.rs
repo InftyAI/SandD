@@ -170,7 +170,7 @@ impl Server {
         let request_id = Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
 
-        conn.register_command(request_id.clone(), tx);
+        conn.register_request(request_id.clone(), tx);
 
         // Send command to daemon
         let msg = Message::ExecuteCommand {
@@ -190,12 +190,22 @@ impl Server {
             self.runtime.block_on(async {
                 // Wait for result with timeout
                 match tokio::time::timeout(Duration::from_secs(timeout), rx).await {
-                    Ok(Ok(result)) => Ok(PyCommandResult {
-                        stdout: result.stdout,
-                        stderr: result.stderr,
-                        exit_code: result.exit_code,
-                        duration_ms: result.duration_ms,
+                    Ok(Ok(Message::CommandOutput {
+                        stdout,
+                        stderr,
+                        exit_code,
+                        duration_ms,
+                        ..
+                    })) => Ok(PyCommandResult {
+                        stdout,
+                        stderr,
+                        exit_code,
+                        duration_ms,
                     }),
+                    Ok(Ok(Message::CommandError { error, .. })) => {
+                        Err(PyRuntimeError::new_err(format!("Command error: {}", error)))
+                    }
+                    Ok(Ok(_)) => Err(PyRuntimeError::new_err("Unexpected response type")),
                     Ok(Err(_)) => Err(PyRuntimeError::new_err("Command channel closed")),
                     Err(_) => Err(PyTimeoutError::new_err("Command execution timed out")),
                 }
@@ -368,7 +378,7 @@ impl Server {
         let request_id = Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
 
-        conn.register_command(request_id.clone(), tx);
+        conn.register_request(request_id.clone(), tx);
 
         let msg = Message::CreateSnapshot {
             request_id: request_id.clone(),
@@ -383,14 +393,11 @@ impl Server {
         py.allow_threads(|| {
             self.runtime.block_on(async {
                 match tokio::time::timeout(Duration::from_secs(300), rx).await {
-                    Ok(Ok(result)) => {
-                        // Parse snapshot created response
-                        if let Some(snapshot_id) = result.stdout.split_whitespace().next() {
-                            Ok(snapshot_id.to_string())
-                        } else {
-                            Err(PyRuntimeError::new_err("Invalid snapshot response"))
-                        }
+                    Ok(Ok(Message::SnapshotCreated { snapshot_id, .. })) => Ok(snapshot_id),
+                    Ok(Ok(Message::SnapshotError { error, .. })) => {
+                        Err(PyRuntimeError::new_err(format!("Snapshot error: {}", error)))
                     }
+                    Ok(Ok(_)) => Err(PyRuntimeError::new_err("Unexpected response type")),
                     Ok(Err(_)) => Err(PyRuntimeError::new_err("Snapshot channel closed")),
                     Err(_) => Err(PyTimeoutError::new_err("Snapshot creation timed out")),
                 }
@@ -414,7 +421,7 @@ impl Server {
         let request_id = Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
 
-        conn.register_command(request_id.clone(), tx);
+        conn.register_request(request_id.clone(), tx);
 
         let msg = Message::RestoreSnapshot {
             request_id: request_id.clone(),
@@ -428,11 +435,11 @@ impl Server {
         py.allow_threads(|| {
             self.runtime.block_on(async {
                 match tokio::time::timeout(Duration::from_secs(300), rx).await {
-                    Ok(Ok(result)) => {
-                        // Parse file count from response
-                        result.stdout.trim().parse::<usize>()
-                            .map_err(|_| PyRuntimeError::new_err("Invalid restore response"))
+                    Ok(Ok(Message::SnapshotRestored { file_count, .. })) => Ok(file_count),
+                    Ok(Ok(Message::SnapshotError { error, .. })) => {
+                        Err(PyRuntimeError::new_err(format!("Restore error: {}", error)))
                     }
+                    Ok(Ok(_)) => Err(PyRuntimeError::new_err("Unexpected response type")),
                     Ok(Err(_)) => Err(PyRuntimeError::new_err("Restore channel closed")),
                     Err(_) => Err(PyTimeoutError::new_err("Restore timed out")),
                 }
@@ -456,7 +463,7 @@ impl Server {
         let request_id = Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
 
-        conn.register_command(request_id.clone(), tx);
+        conn.register_request(request_id.clone(), tx);
 
         let msg = Message::ListSnapshots {
             request_id: request_id.clone(),
@@ -469,17 +476,17 @@ impl Server {
         py.allow_threads(|| {
             self.runtime.block_on(async {
                 match tokio::time::timeout(Duration::from_secs(60), rx).await {
-                    Ok(Ok(result)) => {
-                        // Parse JSON snapshot list
-                        let snapshots: Vec<serde_json::Value> = serde_json::from_str(&result.stdout)
-                            .map_err(|e| PyRuntimeError::new_err(format!("Invalid snapshot list: {}", e)))?;
-
+                    Ok(Ok(Message::SnapshotList { snapshots, .. })) => {
                         Python::with_gil(|py| {
                             snapshots.into_iter()
                                 .map(|s| pythonize::pythonize(py, &s).map_err(|e| PyRuntimeError::new_err(e.to_string())))
                                 .collect()
                         })
                     }
+                    Ok(Ok(Message::SnapshotError { error, .. })) => {
+                        Err(PyRuntimeError::new_err(format!("List error: {}", error)))
+                    }
+                    Ok(Ok(_)) => Err(PyRuntimeError::new_err("Unexpected response type")),
                     Ok(Err(_)) => Err(PyRuntimeError::new_err("List channel closed")),
                     Err(_) => Err(PyTimeoutError::new_err("List timed out")),
                 }
@@ -502,7 +509,7 @@ impl Server {
         let request_id = Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
 
-        conn.register_command(request_id.clone(), tx);
+        conn.register_request(request_id.clone(), tx);
 
         let msg = Message::FindSnapshotByTag {
             request_id: request_id.clone(),
@@ -515,20 +522,18 @@ impl Server {
         py.allow_threads(|| {
             self.runtime.block_on(async {
                 match tokio::time::timeout(Duration::from_secs(60), rx).await {
-                    Ok(Ok(result)) => {
-                        if result.stdout.trim().is_empty() || result.stdout.trim() == "null" {
-                            Ok(None)
-                        } else {
-                            let snapshot: serde_json::Value = serde_json::from_str(&result.stdout)
-                                .map_err(|e| PyRuntimeError::new_err(format!("Invalid snapshot: {}", e)))?;
-
-                            Python::with_gil(|py| {
-                                pythonize::pythonize(py, &snapshot)
-                                    .map(Some)
-                                    .map_err(|e| PyRuntimeError::new_err(e.to_string()))
-                            })
-                        }
+                    Ok(Ok(Message::SnapshotDetails { snapshot: None, .. })) => Ok(None),
+                    Ok(Ok(Message::SnapshotDetails { snapshot: Some(snapshot), .. })) => {
+                        Python::with_gil(|py| {
+                            pythonize::pythonize(py, &snapshot)
+                                .map(Some)
+                                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+                        })
                     }
+                    Ok(Ok(Message::SnapshotError { error, .. })) => {
+                        Err(PyRuntimeError::new_err(format!("Find error: {}", error)))
+                    }
+                    Ok(Ok(_)) => Err(PyRuntimeError::new_err("Unexpected response type")),
                     Ok(Err(_)) => Err(PyRuntimeError::new_err("Find channel closed")),
                     Err(_) => Err(PyTimeoutError::new_err("Find timed out")),
                 }
@@ -551,7 +556,7 @@ impl Server {
         let request_id = Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
 
-        conn.register_command(request_id.clone(), tx);
+        conn.register_request(request_id.clone(), tx);
 
         let msg = Message::GetSnapshot {
             request_id: request_id.clone(),
@@ -564,15 +569,19 @@ impl Server {
         py.allow_threads(|| {
             self.runtime.block_on(async {
                 match tokio::time::timeout(Duration::from_secs(60), rx).await {
-                    Ok(Ok(result)) => {
-                        let snapshot: serde_json::Value = serde_json::from_str(&result.stdout)
-                            .map_err(|e| PyRuntimeError::new_err(format!("Invalid snapshot: {}", e)))?;
-
+                    Ok(Ok(Message::SnapshotDetails { snapshot: Some(snapshot), .. })) => {
                         Python::with_gil(|py| {
                             pythonize::pythonize(py, &snapshot)
                                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))
                         })
                     }
+                    Ok(Ok(Message::SnapshotDetails { snapshot: None, .. })) => {
+                        Err(PyRuntimeError::new_err("Snapshot not found"))
+                    }
+                    Ok(Ok(Message::SnapshotError { error, .. })) => {
+                        Err(PyRuntimeError::new_err(format!("Get error: {}", error)))
+                    }
+                    Ok(Ok(_)) => Err(PyRuntimeError::new_err("Unexpected response type")),
                     Ok(Err(_)) => Err(PyRuntimeError::new_err("Get channel closed")),
                     Err(_) => Err(PyTimeoutError::new_err("Get timed out")),
                 }
@@ -595,7 +604,7 @@ impl Server {
         let request_id = Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
 
-        conn.register_command(request_id.clone(), tx);
+        conn.register_request(request_id.clone(), tx);
 
         let msg = Message::DeleteSnapshot {
             request_id: request_id.clone(),
@@ -608,7 +617,11 @@ impl Server {
         py.allow_threads(|| {
             self.runtime.block_on(async {
                 match tokio::time::timeout(Duration::from_secs(60), rx).await {
-                    Ok(Ok(_)) => Ok(()),
+                    Ok(Ok(Message::SnapshotDeleted { .. })) => Ok(()),
+                    Ok(Ok(Message::SnapshotError { error, .. })) => {
+                        Err(PyRuntimeError::new_err(format!("Delete error: {}", error)))
+                    }
+                    Ok(Ok(_)) => Err(PyRuntimeError::new_err("Unexpected response type")),
                     Ok(Err(_)) => Err(PyRuntimeError::new_err("Delete channel closed")),
                     Err(_) => Err(PyTimeoutError::new_err("Delete timed out")),
                 }

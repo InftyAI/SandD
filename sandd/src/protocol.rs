@@ -138,17 +138,13 @@ pub enum Message {
         request_id: String,
         tag: String,
     },
-    SnapshotFound {
-        request_id: String,
-        snapshot: Option<crate::snapshot::types::SnapshotInfo>,
-    },
     GetSnapshot {
         request_id: String,
         snapshot_id: String,
     },
     SnapshotDetails {
         request_id: String,
-        snapshot: crate::snapshot::types::SnapshotInfo,
+        snapshot: Option<crate::snapshot::types::SnapshotInfo>,
     },
     DeleteSnapshot {
         request_id: String,

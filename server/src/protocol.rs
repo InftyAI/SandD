@@ -110,6 +110,60 @@ pub enum Message {
         error: String,
     },
 
+    // Snapshot operations
+    CreateSnapshot {
+        request_id: String,
+        workspace: String,
+        message: Option<String>,
+        tags: Option<Vec<String>>,
+    },
+    SnapshotCreated {
+        request_id: String,
+        snapshot_id: String,
+        file_count: usize,
+        total_size: u64,
+    },
+    RestoreSnapshot {
+        request_id: String,
+        snapshot_id: String,
+        destination: String,
+    },
+    SnapshotRestored {
+        request_id: String,
+        file_count: usize,
+    },
+    ListSnapshots {
+        request_id: String,
+        tags: Option<Vec<String>>,
+    },
+    SnapshotList {
+        request_id: String,
+        snapshots: Vec<serde_json::Value>,
+    },
+    FindSnapshotByTag {
+        request_id: String,
+        tag: String,
+    },
+    GetSnapshot {
+        request_id: String,
+        snapshot_id: String,
+    },
+    SnapshotDetails {
+        request_id: String,
+        snapshot: Option<serde_json::Value>,
+    },
+    DeleteSnapshot {
+        request_id: String,
+        snapshot_id: String,
+    },
+    SnapshotDeleted {
+        request_id: String,
+    },
+    SnapshotError {
+        request_id: String,
+        error: String,
+    },
+
     // Error handling
     Error {
         message: String,

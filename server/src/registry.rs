@@ -17,19 +17,20 @@ pub struct DaemonConnection {
     // ═══════════════════════════════════════════════════════════════════
     // Outgoing: Python → Daemon
     // ═══════════════════════════════════════════════════════════════════
-    /// Channel to send commands to daemon (Python → handle_websocket → Daemon)
+    /// Channel to send requests to daemon (Python → handle_websocket → Daemon)
+    /// Handles all message types: ExecuteCommand, CreateSnapshot, etc.
     /// This is the bridge from Python API to the WebSocket handler.
     /// Multiple Python threads can send concurrently (lock-free).
-    command_tx: mpsc::UnboundedSender<Message>,
+    request_tx: mpsc::UnboundedSender<Message>,
 
     // ═══════════════════════════════════════════════════════════════════
     // Incoming: Daemon → Python (Request/Response Pattern)
     // ═══════════════════════════════════════════════════════════════════
-    /// Maps request_id → response channel for exec() calls
-    /// When Python sends a command, it registers a oneshot channel here and waits.
-    /// When daemon responds with CommandOutput, we look up and send result back.
-    /// Pattern: Request/Response (each command gets exactly one response)
-    pending_commands: Arc<DashMap<String, oneshot::Sender<CommandResult>>>,
+    /// Maps request_id → response channel for ALL request/response operations
+    /// Handles: ExecuteCommand, CreateSnapshot, ListSnapshots, FindSnapshotByTag,
+    /// GetSnapshot, DeleteSnapshot, RestoreSnapshot, and future operations
+    /// Pattern: Request/Response (each request gets exactly one response Message)
+    pending_requests: Arc<DashMap<String, oneshot::Sender<Message>>>,
 
     // ═══════════════════════════════════════════════════════════════════
     // Incoming: Daemon → Python (Streaming Pattern)
@@ -48,14 +49,6 @@ pub struct DaemonConnection {
     file_transfers: Arc<DashMap<String, FileTransfer>>,
 }
 
-#[derive(Debug, Clone)]
-pub struct CommandResult {
-    pub stdout: String,
-    pub stderr: String,
-    pub exit_code: i32,
-    pub duration_ms: u64,
-}
-
 #[derive(Debug)]
 pub struct FileTransfer {
     pub path: String,
@@ -68,7 +61,7 @@ impl DaemonConnection {
     pub fn new(
         id: String,
         metadata: DaemonMetadata,
-        command_tx: mpsc::UnboundedSender<Message>,
+        request_tx: mpsc::UnboundedSender<Message>,
     ) -> Self {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -80,8 +73,8 @@ impl DaemonConnection {
             metadata,
             last_heartbeat: AtomicU64::new(now),
             connected_at: now,
-            command_tx,
-            pending_commands: Arc::new(DashMap::new()),
+            request_tx,
+            pending_requests: Arc::new(DashMap::new()),
             sessions: Arc::new(DashMap::new()),
             file_transfers: Arc::new(DashMap::new()),
         }
@@ -105,24 +98,24 @@ impl DaemonConnection {
     }
 
     pub fn send_message(&self, msg: Message) -> Result<()> {
-        self.command_tx
+        self.request_tx
             .send(msg)
             .map_err(|_| anyhow!("Daemon channel closed"))?;
         Ok(())
     }
 
-    pub fn register_command(&self, command_id: String, tx: oneshot::Sender<CommandResult>) {
-        self.pending_commands.insert(command_id, tx);
+    pub fn register_request(&self, request_id: String, tx: oneshot::Sender<Message>) {
+        self.pending_requests.insert(request_id, tx);
     }
 
-    pub fn complete_command(&self, command_id: &str, result: CommandResult) {
-        if let Some((_, tx)) = self.pending_commands.remove(command_id) {
-            let _ = tx.send(result);
+    pub fn complete_request(&self, request_id: &str, response: Message) {
+        if let Some((_, tx)) = self.pending_requests.remove(request_id) {
+            let _ = tx.send(response);
         }
     }
 
     pub fn is_busy(&self) -> bool {
-        !self.pending_commands.is_empty()
+        !self.pending_requests.is_empty()
     }
 
     pub fn register_session(&self, session_id: String, tx: mpsc::UnboundedSender<Vec<u8>>) {

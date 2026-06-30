@@ -36,6 +36,7 @@ parking_lot = "0.12"
 
 # Python bindings
 pyo3 = { version = "0.20", features = ["extension-module", "anyhow"] }
+pythonize = "0.20"
 
 # Base64 for protocol
 base64 = "0.22"
