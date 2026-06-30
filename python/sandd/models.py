@@ -1,6 +1,6 @@
 """Data models for SandD"""
 
-from typing import Dict, List, Optional
+from typing import Dict, List
 from datetime import datetime
 
 try:
@@ -155,5 +155,3 @@ class SnapshotInfo:
             f"SnapshotInfo(id={self.id!r}, message={self.message!r}, "
             f"tags={self.tags}, files={self.file_count})"
         )
-
-
