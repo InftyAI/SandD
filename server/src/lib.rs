@@ -170,7 +170,7 @@ impl Server {
         let request_id = Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
 
-        conn.register_command(request_id.clone(), tx);
+        conn.register_request(request_id.clone(), tx);
 
         // Send command to daemon
         let msg = Message::ExecuteCommand {
@@ -190,12 +190,22 @@ impl Server {
             self.runtime.block_on(async {
                 // Wait for result with timeout
                 match tokio::time::timeout(Duration::from_secs(timeout), rx).await {
-                    Ok(Ok(result)) => Ok(PyCommandResult {
-                        stdout: result.stdout,
-                        stderr: result.stderr,
-                        exit_code: result.exit_code,
-                        duration_ms: result.duration_ms,
+                    Ok(Ok(Message::CommandOutput {
+                        stdout,
+                        stderr,
+                        exit_code,
+                        duration_ms,
+                        ..
+                    })) => Ok(PyCommandResult {
+                        stdout,
+                        stderr,
+                        exit_code,
+                        duration_ms,
                     }),
+                    Ok(Ok(Message::CommandError { error, .. })) => {
+                        Err(PyRuntimeError::new_err(format!("Command error: {}", error)))
+                    }
+                    Ok(Ok(_)) => Err(PyRuntimeError::new_err("Unexpected response type")),
                     Ok(Err(_)) => Err(PyRuntimeError::new_err("Command channel closed")),
                     Err(_) => Err(PyTimeoutError::new_err("Command execution timed out")),
                 }
@@ -348,6 +358,276 @@ impl Server {
             labels: conn.metadata.labels.clone(),
             is_busy: conn.is_busy(),
         }))
+    }
+
+    /// Create snapshot on daemon
+    #[pyo3(signature = (daemon_id, workspace, message=None, tags=None))]
+    fn create_snapshot(
+        &self,
+        py: Python,
+        daemon_id: String,
+        workspace: String,
+        message: Option<String>,
+        tags: Option<Vec<String>>,
+    ) -> PyResult<String> {
+        let conn = self
+            .registry
+            .get(&daemon_id)
+            .ok_or_else(|| PyValueError::new_err(format!("Daemon {} not found", daemon_id)))?;
+
+        let request_id = Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+
+        conn.register_request(request_id.clone(), tx);
+
+        let msg = Message::CreateSnapshot {
+            request_id: request_id.clone(),
+            workspace,
+            message,
+            tags,
+        };
+
+        conn.send_message(msg)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to send snapshot request: {}", e)))?;
+
+        py.allow_threads(|| {
+            self.runtime.block_on(async {
+                match tokio::time::timeout(Duration::from_secs(300), rx).await {
+                    Ok(Ok(Message::SnapshotCreated { snapshot_id, .. })) => Ok(snapshot_id),
+                    Ok(Ok(Message::SnapshotError { error, .. })) => {
+                        Err(PyRuntimeError::new_err(format!("Snapshot error: {}", error)))
+                    }
+                    Ok(Ok(_)) => Err(PyRuntimeError::new_err("Unexpected response type")),
+                    Ok(Err(_)) => Err(PyRuntimeError::new_err("Snapshot channel closed")),
+                    Err(_) => Err(PyTimeoutError::new_err("Snapshot creation timed out")),
+                }
+            })
+        })
+    }
+
+    /// Restore snapshot on daemon
+    fn restore_snapshot(
+        &self,
+        py: Python,
+        daemon_id: String,
+        snapshot_id: String,
+        destination: String,
+    ) -> PyResult<usize> {
+        let conn = self
+            .registry
+            .get(&daemon_id)
+            .ok_or_else(|| PyValueError::new_err(format!("Daemon {} not found", daemon_id)))?;
+
+        let request_id = Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+
+        conn.register_request(request_id.clone(), tx);
+
+        let msg = Message::RestoreSnapshot {
+            request_id: request_id.clone(),
+            snapshot_id,
+            destination,
+        };
+
+        conn.send_message(msg)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to send restore request: {}", e)))?;
+
+        py.allow_threads(|| {
+            self.runtime.block_on(async {
+                match tokio::time::timeout(Duration::from_secs(300), rx).await {
+                    Ok(Ok(Message::SnapshotRestored { file_count, .. })) => Ok(file_count),
+                    Ok(Ok(Message::SnapshotError { error, .. })) => {
+                        Err(PyRuntimeError::new_err(format!("Restore error: {}", error)))
+                    }
+                    Ok(Ok(_)) => Err(PyRuntimeError::new_err("Unexpected response type")),
+                    Ok(Err(_)) => Err(PyRuntimeError::new_err("Restore channel closed")),
+                    Err(_) => Err(PyTimeoutError::new_err("Restore timed out")),
+                }
+            })
+        })
+    }
+
+    /// List snapshots on daemon
+    #[pyo3(signature = (daemon_id, tags=None))]
+    fn list_snapshots(
+        &self,
+        py: Python,
+        daemon_id: String,
+        tags: Option<Vec<String>>,
+    ) -> PyResult<Vec<PyObject>> {
+        let conn = self
+            .registry
+            .get(&daemon_id)
+            .ok_or_else(|| PyValueError::new_err(format!("Daemon {} not found", daemon_id)))?;
+
+        let request_id = Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+
+        conn.register_request(request_id.clone(), tx);
+
+        let msg = Message::ListSnapshots {
+            request_id: request_id.clone(),
+            tags,
+        };
+
+        conn.send_message(msg)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to send list request: {}", e)))?;
+
+        py.allow_threads(|| {
+            self.runtime.block_on(async {
+                match tokio::time::timeout(Duration::from_secs(60), rx).await {
+                    Ok(Ok(Message::SnapshotList { snapshots, .. })) => {
+                        Python::with_gil(|py| {
+                            snapshots.into_iter()
+                                .map(|s| pythonize::pythonize(py, &s).map_err(|e| PyRuntimeError::new_err(e.to_string())))
+                                .collect()
+                        })
+                    }
+                    Ok(Ok(Message::SnapshotError { error, .. })) => {
+                        Err(PyRuntimeError::new_err(format!("List error: {}", error)))
+                    }
+                    Ok(Ok(_)) => Err(PyRuntimeError::new_err("Unexpected response type")),
+                    Ok(Err(_)) => Err(PyRuntimeError::new_err("List channel closed")),
+                    Err(_) => Err(PyTimeoutError::new_err("List timed out")),
+                }
+            })
+        })
+    }
+
+    /// Find snapshot by tag
+    fn find_snapshot_by_tag(
+        &self,
+        py: Python,
+        daemon_id: String,
+        tag: String,
+    ) -> PyResult<Option<PyObject>> {
+        let conn = self
+            .registry
+            .get(&daemon_id)
+            .ok_or_else(|| PyValueError::new_err(format!("Daemon {} not found", daemon_id)))?;
+
+        let request_id = Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+
+        conn.register_request(request_id.clone(), tx);
+
+        let msg = Message::FindSnapshotByTag {
+            request_id: request_id.clone(),
+            tag,
+        };
+
+        conn.send_message(msg)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to send find request: {}", e)))?;
+
+        py.allow_threads(|| {
+            self.runtime.block_on(async {
+                match tokio::time::timeout(Duration::from_secs(60), rx).await {
+                    Ok(Ok(Message::SnapshotDetails { snapshot: None, .. })) => Ok(None),
+                    Ok(Ok(Message::SnapshotDetails { snapshot: Some(snapshot), .. })) => {
+                        Python::with_gil(|py| {
+                            pythonize::pythonize(py, &snapshot)
+                                .map(Some)
+                                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+                        })
+                    }
+                    Ok(Ok(Message::SnapshotError { error, .. })) => {
+                        Err(PyRuntimeError::new_err(format!("Find error: {}", error)))
+                    }
+                    Ok(Ok(_)) => Err(PyRuntimeError::new_err("Unexpected response type")),
+                    Ok(Err(_)) => Err(PyRuntimeError::new_err("Find channel closed")),
+                    Err(_) => Err(PyTimeoutError::new_err("Find timed out")),
+                }
+            })
+        })
+    }
+
+    /// Get snapshot details (returns None if not found)
+    fn get_snapshot(
+        &self,
+        py: Python,
+        daemon_id: String,
+        snapshot_id: String,
+    ) -> PyResult<Option<PyObject>> {
+        let conn = self
+            .registry
+            .get(&daemon_id)
+            .ok_or_else(|| PyValueError::new_err(format!("Daemon {} not found", daemon_id)))?;
+
+        let request_id = Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+
+        conn.register_request(request_id.clone(), tx);
+
+        let msg = Message::GetSnapshot {
+            request_id: request_id.clone(),
+            snapshot_id,
+        };
+
+        conn.send_message(msg)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to send get request: {}", e)))?;
+
+        py.allow_threads(|| {
+            self.runtime.block_on(async {
+                match tokio::time::timeout(Duration::from_secs(60), rx).await {
+                    Ok(Ok(Message::SnapshotDetails { snapshot: Some(snapshot), .. })) => {
+                        Python::with_gil(|py| {
+                            pythonize::pythonize(py, &snapshot)
+                                .map(Some)
+                                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+                        })
+                    }
+                    Ok(Ok(Message::SnapshotDetails { snapshot: None, .. })) => {
+                        Ok(None)
+                    }
+                    Ok(Ok(Message::SnapshotError { error, .. })) => {
+                        Err(PyRuntimeError::new_err(format!("Get error: {}", error)))
+                    }
+                    Ok(Ok(_)) => Err(PyRuntimeError::new_err("Unexpected response type")),
+                    Ok(Err(_)) => Err(PyRuntimeError::new_err("Get channel closed")),
+                    Err(_) => Err(PyTimeoutError::new_err("Get timed out")),
+                }
+            })
+        })
+    }
+
+    /// Delete snapshot
+    fn delete_snapshot(
+        &self,
+        py: Python,
+        daemon_id: String,
+        snapshot_id: String,
+    ) -> PyResult<()> {
+        let conn = self
+            .registry
+            .get(&daemon_id)
+            .ok_or_else(|| PyValueError::new_err(format!("Daemon {} not found", daemon_id)))?;
+
+        let request_id = Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+
+        conn.register_request(request_id.clone(), tx);
+
+        let msg = Message::DeleteSnapshot {
+            request_id: request_id.clone(),
+            snapshot_id,
+        };
+
+        conn.send_message(msg)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to send delete request: {}", e)))?;
+
+        py.allow_threads(|| {
+            self.runtime.block_on(async {
+                match tokio::time::timeout(Duration::from_secs(60), rx).await {
+                    Ok(Ok(Message::SnapshotDeleted { .. })) => Ok(()),
+                    Ok(Ok(Message::SnapshotError { error, .. })) => {
+                        Err(PyRuntimeError::new_err(format!("Delete error: {}", error)))
+                    }
+                    Ok(Ok(_)) => Err(PyRuntimeError::new_err("Unexpected response type")),
+                    Ok(Err(_)) => Err(PyRuntimeError::new_err("Delete channel closed")),
+                    Err(_) => Err(PyTimeoutError::new_err("Delete timed out")),
+                }
+            })
+        })
     }
 }
 

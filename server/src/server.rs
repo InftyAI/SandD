@@ -1,5 +1,5 @@
 use crate::protocol::Message;
-use crate::registry::{CommandResult, DaemonConnection, DaemonRegistry};
+use crate::registry::{DaemonConnection, DaemonRegistry};
 use anyhow::{Context, Result};
 use axum::{
     extract::{
@@ -97,8 +97,8 @@ async fn websocket_handler(
 async fn handle_websocket(ws: WebSocket, registry: Arc<DaemonRegistry>) {
     let (mut ws_tx, mut ws_rx) = ws.split();
 
-    // Create channel for outgoing commands
-    let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel();
+    // Create channel for outgoing requests (Python → Daemon)
+    let (request_tx, mut request_rx) = tokio::sync::mpsc::unbounded_channel();
 
     let mut daemon_id: Option<String> = None;
 
@@ -131,21 +131,21 @@ async fn handle_websocket(ws: WebSocket, registry: Arc<DaemonRegistry>) {
                     }
                 };
 
-                handle_daemon_message(message, &mut daemon_id, &registry, &mut ws_tx, &cmd_tx).await;
+                handle_daemon_message(message, &mut daemon_id, &registry, &mut ws_tx, &request_tx).await;
             }
 
-            // Receive commands from Python (via channel)
-            Some(cmd) = cmd_rx.recv() => {
-                let json = match serde_json::to_string(&cmd) {
+            // Receive requests from Python (via channel)
+            Some(request) = request_rx.recv() => {
+                let json = match serde_json::to_string(&request) {
                     Ok(j) => j,
                     Err(e) => {
-                        error!("Failed to serialize command: {}", e);
+                        error!("Failed to serialize request: {}", e);
                         continue;
                     }
                 };
 
                 if let Err(e) = ws_tx.send(axum::extract::ws::Message::Text(json)).await {
-                    error!("Failed to send command to daemon: {}", e);
+                    error!("Failed to send request to daemon: {}", e);
                     break;
                 }
             }
@@ -165,7 +165,7 @@ async fn handle_daemon_message(
     daemon_id: &mut Option<String>,
     registry: &Arc<DaemonRegistry>,
     ws_tx: &mut futures_util::stream::SplitSink<WebSocket, axum::extract::ws::Message>,
-    cmd_tx: &mpsc::UnboundedSender<Message>,
+    request_tx: &mpsc::UnboundedSender<Message>,
 ) {
     use futures_util::SinkExt;
 
@@ -183,7 +183,7 @@ async fn handle_daemon_message(
             );
 
             // Create and register connection with channel
-            let new_conn = DaemonConnection::new(id.clone(), metadata, cmd_tx.clone());
+            let new_conn = DaemonConnection::new(id.clone(), metadata, request_tx.clone());
             registry.register(new_conn);
 
             // Send ack
@@ -206,25 +206,31 @@ async fn handle_daemon_message(
             }
         }
 
-        Message::CommandOutput {
-            request_id,
-            stdout,
-            stderr,
-            exit_code,
-            duration_ms,
-        } => {
+        // All response messages for request/response pattern
+        response @ (Message::CommandOutput { .. }
+        | Message::CommandError { .. }
+        | Message::SnapshotCreated { .. }
+        | Message::SnapshotRestored { .. }
+        | Message::SnapshotList { .. }
+        | Message::SnapshotDetails { .. }
+        | Message::SnapshotDeleted { .. }
+        | Message::SnapshotError { .. }) => {
             if let Some(ref id) = daemon_id {
                 if let Some(conn) = registry.get(id) {
-                    debug!("Command {} completed on daemon {}", request_id, id);
-                    conn.complete_command(
-                        &request_id,
-                        CommandResult {
-                            stdout,
-                            stderr,
-                            exit_code,
-                            duration_ms,
-                        },
-                    );
+                    // Helper to extract request_id without moving
+                    let request_id = match &response {
+                        Message::CommandOutput { request_id, .. }
+                        | Message::CommandError { request_id, .. }
+                        | Message::SnapshotCreated { request_id, .. }
+                        | Message::SnapshotRestored { request_id, .. }
+                        | Message::SnapshotList { request_id, .. }
+                        | Message::SnapshotDetails { request_id, .. }
+                        | Message::SnapshotDeleted { request_id, .. }
+                        | Message::SnapshotError { request_id, .. } => request_id.clone(),
+                        _ => unreachable!(),
+                    };
+                    debug!("Request {} completed on daemon {}", request_id, id);
+                    conn.complete_request(&request_id, response);
                 }
             }
         }

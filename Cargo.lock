@@ -1528,6 +1528,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pythonize"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ffd1c3ef39c725d63db5f9bc455461bafd80540cb7824c61afb823501921a850"
+dependencies = [
+ "pyo3",
+ "serde",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1691,6 +1701,7 @@ dependencies = [
  "futures-util",
  "parking_lot 0.12.5",
  "pyo3",
+ "pythonize",
  "serde",
  "serde_json",
  "tokio",

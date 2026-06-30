@@ -74,6 +74,11 @@ docker-down:
 lint: $(RUFF)
 	$(RUFF) check .
 
+.PHONY: format
+format: $(RUFF)
+	$(RUFF) check --fix .
+	$(RUFF) format .
+
 $(RUFF):
 	@echo "Installing ruff..."
 	@python3 -m venv .venv || true

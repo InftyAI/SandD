@@ -54,6 +54,12 @@ impl SnapshotManager {
             Self::validate_tag_name(tag)?;
         }
 
+        // Create snapshot metadata (store tags in snapshot file)
+        let created_at = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| anyhow::anyhow!("System time error: {}", e))?
+            .as_secs();
+
         // Check tag existence upfront (still has TOCTOU, but add_tag uses atomic write)
         for tag in &tags {
             let tag_file = self.tags_dir.join(tag);
@@ -67,14 +73,13 @@ impl SnapshotManager {
         // Build tree recursively
         let (tree_hash, file_count, total_size) = self.build_tree(workspace).await?;
 
-        // Create snapshot metadata (store tags in snapshot file)
         let snapshot = Snapshot {
             id: snapshot_id.clone(),
-            created_at: SystemTime::now(),
+            created_at,
             tree: tree_hash,
             message: message.unwrap_or_else(|| format!("Snapshot {}", snapshot_id)),
             tags: tags.clone(), // Store in snapshot for fast access
-            workspace_path: workspace.to_path_buf(),
+            workspace: workspace.to_path_buf(),
             file_count,
             total_size,
         };
@@ -297,9 +302,6 @@ impl SnapshotManager {
                     None => anyhow::bail!("Tag '{}' does not exist", tag),
                 }
             }
-            // Deduplicate: multiple tags may point to same snapshot
-            ids.sort();
-            ids.dedup();
             ids
         } else {
             // No filter: load all snapshots
@@ -324,15 +326,23 @@ impl SnapshotManager {
             snapshots.push(snapshot.into());
         }
 
-        // Sort by creation time (newest first)
-        snapshots.sort_by(|a: &SnapshotInfo, b: &SnapshotInfo| b.created_at.cmp(&a.created_at));
+        // Sort by creation time (newest first), then deduplicate by ID
+        // Note: when filtering by tags, multiple tags may point to same snapshot
+        snapshots.sort_by(|a: &SnapshotInfo, b: &SnapshotInfo| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+
+        // Deduplicate by ID (keep first occurrence = newest due to sort)
+        snapshots.dedup_by(|a, b| a.id == b.id);
 
         Ok(snapshots)
     }
 
     /// Find snapshot by tag (O(1) lookup via tag ref)
     /// Returns single snapshot since tags are immutable
-    pub async fn find_by_tag(&self, tag: &str) -> Result<Option<SnapshotInfo>> {
+    pub async fn find_snapshot_by_tag(&self, tag: &str) -> Result<Option<SnapshotInfo>> {
         // Validate tag name (security)
         Self::validate_tag_name(tag)?;
 
@@ -345,13 +355,13 @@ impl SnapshotManager {
     }
 
     /// Get snapshot by ID
-    pub async fn get_snapshot(&self, id: &str) -> Result<Snapshot> {
+    pub async fn get_snapshot(&self, id: &str) -> Result<SnapshotInfo> {
         let snapshot_file = self.snapshots_dir.join(format!("{}.json", id));
         let json = fs::read_to_string(snapshot_file)
             .await
             .with_context(|| format!("Snapshot {} not found", id))?;
         let snapshot: Snapshot = serde_json::from_str(&json)?;
-        Ok(snapshot)
+        Ok(snapshot.into())
     }
 
     /// Delete snapshot and its tag refs
@@ -572,6 +582,9 @@ mod tests {
             .await
             .unwrap();
 
+        // sleep for a while to ensure different timestamps
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
         let _id2 = manager
             .create_snapshot(
                 &workspace,
@@ -596,7 +609,7 @@ mod tests {
         assert_eq!(tag1_snapshots[0].message, "First");
 
         // Find by tag (returns single snapshot since tags are immutable)
-        let tag2_snapshot = manager.find_by_tag("tag2").await.unwrap();
+        let tag2_snapshot = manager.find_snapshot_by_tag("tag2").await.unwrap();
         assert!(tag2_snapshot.is_some());
         assert_eq!(tag2_snapshot.unwrap().message, "Second");
     }
@@ -910,7 +923,6 @@ mod tests {
         assert_eq!(snapshot.message, "Test message");
         assert_eq!(snapshot.tags, vec!["tag1", "tag2"]);
         assert_eq!(snapshot.file_count, 1);
-        assert_eq!(snapshot.workspace_path, workspace);
 
         // Try getting non-existent snapshot
         let result = manager.get_snapshot("non-existent-id").await;
@@ -1063,7 +1075,11 @@ mod tests {
             .create_snapshot(
                 &workspace,
                 Some("Test".to_string()),
-                Some(vec!["v1.0.0".to_string(), "stable".to_string(), "latest".to_string()]),
+                Some(vec![
+                    "v1.0.0".to_string(),
+                    "stable".to_string(),
+                    "latest".to_string(),
+                ]),
             )
             .await
             .unwrap();

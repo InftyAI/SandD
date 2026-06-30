@@ -192,7 +192,7 @@ impl SnapshotManager {
 
     /// Find snapshot by tag (O(1) lookup via tag ref)
     /// Returns single snapshot since tags are immutable
-    pub async fn find_by_tag(&self, tag: &str) -> Result<Option<SnapshotInfo>>;
+    pub async fn find_snapshot_by_tag(&self, tag: &str) -> Result<Option<SnapshotInfo>>;
 
     /// Get snapshot by ID
     pub async fn get_snapshot(&self, id: &str) -> Result<Snapshot>;
@@ -206,44 +206,83 @@ impl SnapshotManager {
 
 ## Protocol Integration
 
-**Note:** See [Protocol Specification](PROTOCOL.md) for complete message format details.
+Snapshot operations are exposed via WebSocket protocol messages. All operations include a `request_id` for matching requests with responses.
 
-**New message types:**
+**Message types:**
 
 ```rust
-pub enum Request {
+pub enum Message {
+    // Create snapshot
     CreateSnapshot {
-        daemon_id: String,
-        workspace_path: String,
-        message: String,
-        tags: Vec<String>,
+        request_id: String,
+        workspace: String,            // Path to workspace directory
+        message: Option<String>,      // Optional description
+        tags: Option<Vec<String>>,    // Optional tags (must be unique)
     },
-
-    RestoreSnapshot {
-        daemon_id: String,
-        snapshot_id: String,
-        destination: String,
-    },
-
-    ListSnapshots { daemon_id: String },
-    DeleteSnapshot { daemon_id: String, snapshot_id: String },
-    GarbageCollect { daemon_id: String },
-}
-
-pub enum Response {
     SnapshotCreated {
-        snapshot_id: String,
-        file_count: usize,
-        total_size: u64,
-        duration_ms: u64,
+        request_id: String,
+        snapshot_id: String,          // UUID of created snapshot
+        file_count: usize,            // Number of files captured
+        total_size: u64,              // Total size in bytes
     },
 
-    SnapshotRestored { file_count: usize, duration_ms: u64 },
-    Snapshots { snapshots: Vec<SnapshotInfo> },
-    SnapshotDeleted { freed_bytes: u64 },
-    GarbageCollected { objects_deleted: usize, bytes_freed: u64 },
+    // Restore snapshot
+    RestoreSnapshot {
+        request_id: String,
+        snapshot_id: String,          // Snapshot ID
+        destination: String,          // Path to restore to
+    },
+    SnapshotRestored {
+        request_id: String,
+        file_count: usize,            // Number of files restored
+    },
+
+    // List snapshots (with optional tag filter)
+    ListSnapshots {
+        request_id: String,
+        tags: Option<Vec<String>>,    // OR filter: snapshots with any of these tags
+    },
+    SnapshotList {
+        request_id: String,
+        snapshots: Vec<SnapshotInfo>, // Sorted by creation time (newest first)
+    },
+
+    // Find snapshot by tag (O(1) lookup)
+    FindSnapshotByTag {
+        request_id: String,
+        tag: String,                  // Tag name (immutable)
+    },
+    // Get snapshot details
+    GetSnapshot {
+        request_id: String,
+        snapshot_id: String,
+    },
+    SnapshotDetails {
+        request_id: String,
+        snapshot: Option<SnapshotInfo>, // Snapshot metadata, None if doesn't exist
+    },
+
+    // Delete snapshot (also removes tag refs)
+    DeleteSnapshot {
+        request_id: String,
+        snapshot_id: String,
+    },
+    SnapshotDeleted {
+        request_id: String,
+    },
+
+    // Error response
+    SnapshotError {
+        request_id: String,
+        error: String,                // Error message (e.g., "Tag 'v1.0.0' already exists")
+    },
 }
 ```
+
+**Error cases:**
+- `CreateSnapshot` with existing tag → `SnapshotError`
+- `RestoreSnapshot`/`GetSnapshot`/`DeleteSnapshot` with non-existent ID → `SnapshotError`
+- File I/O errors → `SnapshotError`
 
 ---
 
@@ -275,7 +314,7 @@ async fn main() -> Result<()> {
     }
 
     // Find snapshot by tag (O(1) lookup)
-    if let Some(snapshot) = manager.find_by_tag("pre-task").await? {
+    if let Some(snapshot) = manager.find_snapshot_by_tag("pre-task").await? {
         println!("Found: {}", snapshot.id);
     }
 

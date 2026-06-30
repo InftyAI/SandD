@@ -1,13 +1,13 @@
 """Data models for SandD"""
 
-from typing import Dict
+from typing import Dict, List
+from datetime import datetime
 
 try:
     from ._core import PyCommandResult, PyStats
 except ImportError as e:
     raise ImportError(
-        "Failed to import Rust extension. "
-        "Please build the package with: make install"
+        "Failed to import Rust extension. Please build the package with: make install"
     ) from e
 
 
@@ -115,7 +115,39 @@ class ServerStats:
         return self._stats.oldest_connection_secs
 
     def __repr__(self) -> str:
+        return f"ServerStats(total={self.total_daemons}, platforms={self.by_platform})"
+
+
+class SnapshotInfo:
+    """Snapshot metadata
+
+    Attributes:
+        id: Snapshot ID (UUID)
+        created_at: Creation timestamp
+        message: Snapshot description
+        tags: List of tags (immutable)
+        file_count: Number of files in snapshot
+        total_size: Total size in bytes
+    """
+
+    def __init__(
+        self,
+        id: str,
+        created_at: int,  # Unix timestamp
+        message: str,
+        tags: List[str],
+        file_count: int,
+        total_size: int,
+    ):
+        self.id = id
+        self.created_at = datetime.fromtimestamp(created_at)
+        self.message = message
+        self.tags = tags
+        self.file_count = file_count
+        self.total_size = total_size
+
+    def __repr__(self) -> str:
         return (
-            f"ServerStats(total={self.total_daemons}, "
-            f"platforms={self.by_platform})"
+            f"SnapshotInfo(id={self.id!r}, message={self.message!r}, "
+            f"tags={self.tags}, files={self.file_count})"
         )

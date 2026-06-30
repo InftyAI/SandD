@@ -60,12 +60,12 @@ async fn main() -> Result<()> {
 
     // 6. Find by tag (returns single snapshot since tags are immutable)
     println!("\n6. Finding snapshot with 'init' tag:");
-    if let Some(snap) = manager.find_by_tag("init").await? {
+    if let Some(snap) = manager.find_snapshot_by_tag("init").await? {
         println!("   {} - {}", snap.id, snap.message);
     }
 
     println!("\n7. Finding snapshot with 'feature' tag:");
-    if let Some(snap) = manager.find_by_tag("feature").await? {
+    if let Some(snap) = manager.find_snapshot_by_tag("feature").await? {
         println!("   {} - {}", snap.id, snap.message);
     }
 

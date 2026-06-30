@@ -47,8 +47,7 @@ try:
     from ._core import Session, TunnelConfig
 except ImportError as e:
     raise ImportError(
-        "Failed to import Rust extension. "
-        "Please build the package with: make install"
+        "Failed to import Rust extension. Please build the package with: make install"
     ) from e
 
 __all__ = [

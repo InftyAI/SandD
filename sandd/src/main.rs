@@ -188,6 +188,16 @@ async fn connect_and_serve(
     let executor = Arc::new(CommandExecutor::new());
     let session_manager = Arc::new(tokio::sync::Mutex::new(session::SessionManager::new()));
 
+    // Initialize sandd root (default: ~/.sandd)
+    let sandd_root = std::env::var("SANDD_ROOT").unwrap_or_else(|_| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        format!("{}/.sandd", home)
+    });
+    let snapshot_manager = Arc::new(
+        snapshot::SnapshotManager::new(std::path::PathBuf::from(&sandd_root))
+            .context("Failed to initialize snapshot manager")?,
+    );
+
     // Spawn heartbeat task
     let ws_tx_clone = Arc::new(tokio::sync::Mutex::new(ws_tx));
     let ws_tx_heartbeat = ws_tx_clone.clone();
@@ -234,6 +244,7 @@ async fn connect_and_serve(
             ws_tx_clone.clone(),
             executor.clone(),
             session_manager.clone(),
+            snapshot_manager.clone(),
         )
         .await
         {
@@ -252,6 +263,7 @@ async fn handle_message<T>(
     ws_tx: Arc<tokio::sync::Mutex<T>>,
     executor: Arc<CommandExecutor>,
     session_manager: Arc<tokio::sync::Mutex<session::SessionManager>>,
+    snapshot_manager: Arc<snapshot::SnapshotManager>,
 ) -> Result<()>
 where
     T: SinkExt<WsMessage> + Unpin + Send + 'static,
@@ -408,6 +420,162 @@ where
                     tx.send(WsMessage::Text(json)).await?;
                 }
             }
+        }
+
+        Message::CreateSnapshot {
+            request_id,
+            workspace,
+            message,
+            tags,
+        } => {
+            debug!("Creating snapshot of {}", workspace);
+            let result = snapshot_manager
+                .create_snapshot(std::path::Path::new(&workspace), message, tags)
+                .await;
+
+            let response = match result {
+                Ok(snapshot_id) => {
+                    let snapshot = snapshot_manager.get_snapshot(&snapshot_id).await?;
+                    Message::SnapshotCreated {
+                        request_id,
+                        snapshot_id,
+                        file_count: snapshot.file_count,
+                        total_size: snapshot.total_size,
+                    }
+                }
+                Err(e) => Message::SnapshotError {
+                    request_id,
+                    error: e.to_string(),
+                },
+            };
+
+            let json = serde_json::to_string(&response)?;
+            let mut tx = ws_tx.lock().await;
+            tx.send(WsMessage::Text(json))
+                .await
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+        }
+
+        Message::RestoreSnapshot {
+            request_id,
+            snapshot_id,
+            destination,
+        } => {
+            debug!("Restoring snapshot {} to {}", snapshot_id, destination);
+            let result = snapshot_manager
+                .restore_snapshot(&snapshot_id, std::path::Path::new(&destination))
+                .await;
+
+            let response = match result {
+                Ok(()) => {
+                    let snapshot = snapshot_manager.get_snapshot(&snapshot_id).await?;
+                    Message::SnapshotRestored {
+                        request_id,
+                        file_count: snapshot.file_count,
+                    }
+                }
+                Err(e) => Message::SnapshotError {
+                    request_id,
+                    error: e.to_string(),
+                },
+            };
+
+            let json = serde_json::to_string(&response)?;
+            let mut tx = ws_tx.lock().await;
+            tx.send(WsMessage::Text(json))
+                .await
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+        }
+
+        Message::ListSnapshots { request_id, tags } => {
+            debug!("Listing snapshots");
+            let result = snapshot_manager.list_snapshots(tags).await;
+
+            let response = match result {
+                Ok(snapshots) => Message::SnapshotList {
+                    request_id,
+                    snapshots,
+                },
+                Err(e) => Message::SnapshotError {
+                    request_id,
+                    error: e.to_string(),
+                },
+            };
+
+            let json = serde_json::to_string(&response)?;
+            let mut tx = ws_tx.lock().await;
+            tx.send(WsMessage::Text(json))
+                .await
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+        }
+
+        Message::FindSnapshotByTag { request_id, tag } => {
+            debug!("Finding snapshot by tag: {}", tag);
+            let result = snapshot_manager.find_snapshot_by_tag(&tag).await;
+
+            let response = match result {
+                Ok(snapshot) => Message::SnapshotDetails {
+                    request_id,
+                    snapshot,
+                },
+                Err(e) => Message::SnapshotError {
+                    request_id,
+                    error: e.to_string(),
+                },
+            };
+
+            let json = serde_json::to_string(&response)?;
+            let mut tx = ws_tx.lock().await;
+            tx.send(WsMessage::Text(json))
+                .await
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+        }
+
+        Message::GetSnapshot {
+            request_id,
+            snapshot_id,
+        } => {
+            debug!("Getting snapshot: {}", snapshot_id);
+            let result = snapshot_manager.get_snapshot(&snapshot_id).await;
+
+            let response = match result {
+                Ok(snapshot_info) => Message::SnapshotDetails {
+                    request_id,
+                    snapshot: Some(snapshot_info),
+                },
+                Err(e) => Message::SnapshotError {
+                    request_id,
+                    error: e.to_string(),
+                },
+            };
+
+            let json = serde_json::to_string(&response)?;
+            let mut tx = ws_tx.lock().await;
+            tx.send(WsMessage::Text(json))
+                .await
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+        }
+
+        Message::DeleteSnapshot {
+            request_id,
+            snapshot_id,
+        } => {
+            debug!("Deleting snapshot: {}", snapshot_id);
+            let result = snapshot_manager.delete_snapshot(&snapshot_id).await;
+
+            let response = match result {
+                Ok(()) => Message::SnapshotDeleted { request_id },
+                Err(e) => Message::SnapshotError {
+                    request_id,
+                    error: e.to_string(),
+                },
+            };
+
+            let json = serde_json::to_string(&response)?;
+            let mut tx = ws_tx.lock().await;
+            tx.send(WsMessage::Text(json))
+                .await
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
         }
 
         _ => {

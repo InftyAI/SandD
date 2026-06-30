@@ -39,9 +39,7 @@ def install_htop(server, daemon_id):
     else:
         # Linux - detect distribution
         distro_result = server.exec(
-            daemon_id,
-            "cat /etc/os-release 2>/dev/null || echo 'unknown'",
-            timeout=5
+            daemon_id, "cat /etc/os-release 2>/dev/null || echo 'unknown'", timeout=5
         )
 
         if not distro_result.success:
@@ -56,7 +54,9 @@ def install_htop(server, daemon_id):
         elif "ubuntu" in distro or "debian" in distro:
             cmd = "apt-get update && apt-get install -y htop"
         elif "rocky" in distro or "rhel" in distro or "centos" in distro:
-            cmd = "microdnf install -y htop || dnf install -y htop || yum install -y htop"
+            cmd = (
+                "microdnf install -y htop || dnf install -y htop || yum install -y htop"
+            )
         elif "fedora" in distro:
             cmd = "dnf install -y htop"
         else:
@@ -84,7 +84,9 @@ def main():
 
     # Wait for at least one daemon
     print("Waiting for daemons to connect...")
-    print("(Start a daemon with: ./target/release/sandd --server-url ws://127.0.0.1:8765/ws)")
+    print(
+        "(Start a daemon with: ./target/release/sandd --server-url ws://127.0.0.1:8765/ws)"
+    )
     daemons = server.list_daemons()
     while not daemons:
         time.sleep(1)
@@ -103,7 +105,7 @@ def main():
         result = server.exec(daemon_id, "htop --version", timeout=5)
         if result.success:
             # htop version is usually first line
-            version_line = result.stdout.split('\n')[0]
+            version_line = result.stdout.split("\n")[0]
             print(f"  {version_line}")
     else:
         print("✗ htop is not installed")
@@ -114,7 +116,7 @@ def main():
             # Verify installation
             result = server.exec(daemon_id, "htop --version", timeout=5)
             if result.success:
-                version_line = result.stdout.split('\n')[0]
+                version_line = result.stdout.split("\n")[0]
                 print(f"  {version_line}")
         else:
             print("Failed to install htop")
@@ -139,10 +141,10 @@ def main():
         if result.success:
             print(f"✓ {description}")
             # Show first few lines of output
-            output_lines = result.stdout.strip().split('\n')[:3]
+            output_lines = result.stdout.strip().split("\n")[:3]
             for line in output_lines:
                 print(f"  {line}")
-            if len(result.stdout.strip().split('\n')) > 3:
+            if len(result.stdout.strip().split("\n")) > 3:
                 print("  ...")
             print()
         else:
