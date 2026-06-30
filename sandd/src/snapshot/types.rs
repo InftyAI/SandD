@@ -1,13 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::time::SystemTime;
 
 pub type SnapshotId = String;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snapshot {
     pub id: SnapshotId,
-    pub created_at: SystemTime,
+    pub created_at: u64,  // Unix timestamp in seconds
     pub tree: String,
     pub message: String,
     pub tags: Vec<String>,
@@ -19,7 +18,7 @@ pub struct Snapshot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SnapshotInfo {
     pub id: SnapshotId,
-    pub created_at: SystemTime,
+    pub created_at: u64,  // Unix timestamp in seconds
     pub message: String,
     pub tags: Vec<String>,
     pub file_count: usize,

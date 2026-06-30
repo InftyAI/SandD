@@ -68,9 +68,14 @@ impl SnapshotManager {
         let (tree_hash, file_count, total_size) = self.build_tree(workspace).await?;
 
         // Create snapshot metadata (store tags in snapshot file)
+        let created_at = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| anyhow::anyhow!("System time error: {}", e))?
+            .as_secs();
+
         let snapshot = Snapshot {
             id: snapshot_id.clone(),
-            created_at: SystemTime::now(),
+            created_at,
             tree: tree_hash,
             message: message.unwrap_or_else(|| format!("Snapshot {}", snapshot_id)),
             tags: tags.clone(), // Store in snapshot for fast access
