@@ -229,7 +229,7 @@ pub enum Message {
     // Restore snapshot
     RestoreSnapshot {
         request_id: String,
-        snapshot_id: String,          // Snapshot ID or tag name
+        snapshot_id: String,          // Snapshot ID
         destination: String,          // Path to restore to
     },
     SnapshotRestored {
@@ -252,11 +252,6 @@ pub enum Message {
         request_id: String,
         tag: String,                  // Tag name (immutable)
     },
-    SnapshotFound {
-        request_id: String,
-        snapshot: Option<SnapshotInfo>, // None if tag doesn't exist
-    },
-
     // Get snapshot details
     GetSnapshot {
         request_id: String,
@@ -264,7 +259,7 @@ pub enum Message {
     },
     SnapshotDetails {
         request_id: String,
-        snapshot: Snapshot,           // Full snapshot metadata
+        snapshot: Option<SnapshotInfo>, // Snapshot metadata, None if doesn't exist
     },
 
     // Delete snapshot (also removes tag refs)

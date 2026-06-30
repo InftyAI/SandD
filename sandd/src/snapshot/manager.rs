@@ -577,6 +577,9 @@ mod tests {
             .await
             .unwrap();
 
+        // sleep for a while to ensure different timestamps
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
         let _id2 = manager
             .create_snapshot(
                 &workspace,
@@ -1067,7 +1070,11 @@ mod tests {
             .create_snapshot(
                 &workspace,
                 Some("Test".to_string()),
-                Some(vec!["v1.0.0".to_string(), "stable".to_string(), "latest".to_string()]),
+                Some(vec![
+                    "v1.0.0".to_string(),
+                    "stable".to_string(),
+                    "latest".to_string(),
+                ]),
             )
             .await
             .unwrap();
