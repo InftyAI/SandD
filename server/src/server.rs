@@ -1,4 +1,4 @@
-use crate::protocol::Message;
+use sandd_protocol::Message;
 use crate::registry::{DaemonConnection, DaemonRegistry};
 use anyhow::{Context, Result};
 use axum::{

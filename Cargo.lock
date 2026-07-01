@@ -1702,6 +1702,7 @@ dependencies = [
  "parking_lot 0.12.5",
  "pyo3",
  "pythonize",
+ "sandd-protocol",
  "serde",
  "serde_json",
  "tokio",
@@ -1725,6 +1726,7 @@ dependencies = [
  "filetime",
  "futures-util",
  "portable-pty",
+ "sandd-protocol",
  "serde",
  "serde_json",
  "sysinfo",
@@ -1737,6 +1739,15 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "sandd-protocol"
+version = "0.0.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

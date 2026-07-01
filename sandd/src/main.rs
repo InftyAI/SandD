@@ -1,5 +1,5 @@
 mod executor;
-mod protocol;
+// Use shared protocol crate
 mod session;
 pub mod snapshot;
 
@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use executor::CommandExecutor;
 use futures_util::{SinkExt, StreamExt};
-use protocol::Message;
+use sandd_protocol::Message;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -148,7 +148,7 @@ async fn connect_and_serve(
     let (mut ws_tx, mut ws_rx) = ws_stream.split();
 
     // Gather system metadata
-    let metadata = protocol::DaemonMetadata {
+    let metadata = sandd_protocol::DaemonMetadata {
         hostname: System::host_name().unwrap_or_else(|| "unknown".to_string()),
         platform: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),

@@ -1,5 +1,5 @@
 [workspace]
-members = ["server", "sandd"]
+members = ["protocol", "server", "sandd"]
 resolver = "2"
 
 [workspace.dependencies]

@@ -1,10 +1,21 @@
+// Shared protocol between daemon and server
+
 use serde::{Deserialize, Serialize};
 
-/// Protocol messages exchanged between agent and daemon
+/// Snapshot metadata (shared between daemon and server)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotInfo {
+    pub id: String,
+    pub created_at: u64, // Unix timestamp in seconds
+    pub message: String,
+    pub tags: Vec<String>,
+    pub file_count: usize,
+    pub total_size: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Message {
-    // Connection management
     Register {
         daemon_id: String,
         metadata: DaemonMetadata,
@@ -15,8 +26,6 @@ pub enum Message {
     },
     Heartbeat,
     Pong,
-
-    // Command execution (simple mode)
     ExecuteCommand {
         request_id: String,
         command: String,
@@ -38,8 +47,6 @@ pub enum Message {
         request_id: String,
         error: String,
     },
-
-    // Interactive session (PTY mode)
     NewSession {
         session_id: String,
         rows: u16,
@@ -74,14 +81,12 @@ pub enum Message {
         session_id: String,
         exit_code: i32,
     },
-
-    // File transfer
     FileUploadStart {
         request_id: String,
         path: String,
         total_size: u64,
         #[serde(default)]
-        mode: Option<u32>, // Unix file permissions
+        mode: Option<u32>,
     },
     FileUploadChunk {
         request_id: String,
@@ -109,7 +114,6 @@ pub enum Message {
         request_id: String,
         error: String,
     },
-
     // Snapshot operations
     CreateSnapshot {
         request_id: String,
@@ -138,7 +142,7 @@ pub enum Message {
     },
     SnapshotList {
         request_id: String,
-        snapshots: Vec<serde_json::Value>,
+        snapshots: Vec<SnapshotInfo>,
     },
     FindSnapshotByTag {
         request_id: String,
@@ -150,7 +154,7 @@ pub enum Message {
     },
     SnapshotDetails {
         request_id: String,
-        snapshot: Option<serde_json::Value>,
+        snapshot: Option<SnapshotInfo>,
     },
     DeleteSnapshot {
         request_id: String,
@@ -163,8 +167,6 @@ pub enum Message {
         request_id: String,
         error: String,
     },
-
-    // Error handling
     Error {
         message: String,
         #[serde(default)]
@@ -184,14 +186,13 @@ pub struct DaemonMetadata {
 }
 
 fn default_timeout() -> u64 {
-    300 // 5 minutes
+    300
 }
 
 fn default_term() -> String {
     "xterm-256color".to_string()
 }
 
-// Base64 encoding for binary data in JSON
 mod base64_bytes {
     use serde::{Deserialize, Deserializer, Serializer};
 
@@ -209,7 +210,6 @@ mod base64_bytes {
             .map_err(serde::de::Error::custom)
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

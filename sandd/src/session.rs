@@ -1,4 +1,4 @@
-use crate::protocol::Message;
+use sandd_protocol::Message;
 use anyhow::{anyhow, Result};
 use futures_util::SinkExt;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize, PtySystem};

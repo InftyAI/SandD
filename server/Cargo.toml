@@ -12,6 +12,7 @@ name = "sandbox_server"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+sandd-protocol = { path = "../protocol" }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
