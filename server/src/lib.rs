@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 #![allow(non_local_definitions)]
 
-mod protocol;
+// Use shared protocol crate
 mod registry;
 mod server;
 
@@ -18,7 +18,7 @@ use tokio::sync::oneshot;
 use tracing_subscriber;
 use uuid::Uuid;
 
-use protocol::Message;
+use sandd_protocol::Message;
 use registry::DaemonRegistry;
 use server::SandboxServer;
 

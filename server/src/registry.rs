@@ -1,4 +1,4 @@
-use crate::protocol::{DaemonMetadata, Message};
+use sandd_protocol::{DaemonMetadata, Message};
 use anyhow::{anyhow, Result};
 use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};

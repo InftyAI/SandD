@@ -28,6 +28,7 @@ name = "snapshot_real_project"
 path = "../examples/snapshot_real_project.rs"
 
 [dependencies]
+sandd-protocol = { path = "../protocol" }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
