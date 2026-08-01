@@ -1,8 +1,8 @@
 [package]
 name = "sandbox-server"
-version = "0.0.0"
+version = "0.0.1"
 edition = "2021"
-license = "MIT"
+license = "Apache-2.0"
 description = "A lightweight sandbox daemon for secure agent execution in isolated environments."
 repository = "https://github.com/InftyAI/SandD"
 homepage = "https://github.com/InftyAI/SandD"

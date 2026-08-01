@@ -251,7 +251,7 @@ Include motivation and context.
 
 - Keep dependencies minimal
 - Prefer well-maintained crates
-- Check licensing compatibility (MIT)
+- Check licensing compatibility (Apache-2.0)
 
 ## Release Process
 
