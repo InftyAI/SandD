@@ -1675,7 +1675,7 @@ dependencies = [
 
 [[package]]
 name = "sandbox-server"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "axum",
