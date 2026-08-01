@@ -1,6 +1,6 @@
 [package]
 name = "sandd"
-version = "0.0.0"
+version = "0.0.1"
 edition = "2021"
 license = "MIT"
 description = "A lightweight sandbox daemon for secure agent execution in isolated environments."
@@ -38,7 +38,9 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
 # WebSocket client
-tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+# rustls rather than native-tls: keeps OpenSSL out of the dependency tree so the
+# release binaries can be statically linked against musl and run on any Linux.
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
 futures-util = "0.3"
 
 # Process execution

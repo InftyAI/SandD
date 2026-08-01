@@ -78,12 +78,16 @@ check_root() {
 }
 
 detect_os() {
-    if [[ -f /etc/os-release ]]; then
+    # OS is the distro id (used to pick a package manager); PLATFORM is the
+    # coarse kernel name used in release asset names.
+    if [[ "$(uname)" == "Darwin" ]]; then
+        OS="macos"
+        PLATFORM="darwin"
+    elif [[ -f /etc/os-release ]]; then
         . /etc/os-release
         OS=$ID
         OS_VERSION=$VERSION_ID
-    elif [[ "$(uname)" == "Darwin" ]]; then
-        OS="macos"
+        PLATFORM="linux"
     else
         log_error "Unsupported operating system"
         exit 1
@@ -103,7 +107,7 @@ detect_os() {
             ;;
     esac
 
-    log_info "Detected: $OS ($ARCH)"
+    log_info "Detected: $OS ($PLATFORM/$ARCH)"
 }
 
 install_dependencies() {
@@ -132,21 +136,47 @@ install_dependencies() {
 install_sandd() {
     log_info "Installing SandD daemon..."
 
-    # Check if Rust/Cargo is installed
-    if command -v cargo &> /dev/null; then
-        log_info "Installing via cargo..."
-        cargo install sandd
+    ASSET="sandd-${PLATFORM}-${ARCH}"
+
+    # "latest" resolves via GitHub's redirect so the script never needs to know
+    # the current tag; an explicit version addresses the tag directly.
+    if [[ "$SANDD_VERSION" == "latest" ]]; then
+        DOWNLOAD_URL="https://github.com/InftyAI/SandD/releases/latest/download/${ASSET}"
     else
-        # Download binary
-        log_info "Downloading binary..."
-        DOWNLOAD_URL="https://github.com/InftyAI/SandD/releases/download/${SANDD_VERSION}/sandd-${OS}-${ARCH}"
-
-        curl -fsSL "$DOWNLOAD_URL" -o /tmp/sandd
-        chmod +x /tmp/sandd
-        mv /tmp/sandd "$INSTALL_DIR/sandd"
-
-        log_info "Installed to $INSTALL_DIR/sandd"
+        DOWNLOAD_URL="https://github.com/InftyAI/SandD/releases/download/${SANDD_VERSION}/${ASSET}"
     fi
+
+    log_info "Downloading $ASSET ($SANDD_VERSION)..."
+
+    TMP_BIN=$(mktemp)
+    if curl -fsSL "$DOWNLOAD_URL" -o "$TMP_BIN"; then
+        # 755 explicitly: mktemp creates 0600, so `chmod +x` would leave 0711.
+        chmod 755 "$TMP_BIN"
+        mv "$TMP_BIN" "$INSTALL_DIR/sandd"
+        log_info "Installed to $INSTALL_DIR/sandd"
+        return
+    fi
+
+    rm -f "$TMP_BIN"
+    log_warn "No prebuilt binary available at $DOWNLOAD_URL"
+
+    if ! command -v cargo &> /dev/null; then
+        log_error "Cannot install sandd: no prebuilt binary for ${PLATFORM}/${ARCH} and cargo is not available."
+        log_error "Install Rust from https://rustup.rs and re-run, or build from source:"
+        log_error "  git clone https://github.com/InftyAI/SandD && cd SandD && make daemon-release"
+        exit 1
+    fi
+
+    # --root keeps the binary out of root's ~/.cargo/bin, which is not on PATH
+    # for the sudo'd shell this script runs in.
+    log_info "Falling back to building from crates.io via cargo..."
+    if [[ "$SANDD_VERSION" == "latest" ]]; then
+        cargo install sandd --root "$(dirname "$INSTALL_DIR")"
+    else
+        cargo install sandd --version "${SANDD_VERSION#v}" --root "$(dirname "$INSTALL_DIR")"
+    fi
+
+    log_info "Installed to $INSTALL_DIR/sandd"
 }
 
 install_tailscale() {
