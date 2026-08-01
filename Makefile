@@ -2,6 +2,9 @@ RUFF := .venv/bin/ruff
 PYTEST := .venv/bin/pytest
 MATURIN := .venv/bin/maturin
 
+# Pinned so lint results don't shift when ruff changes its default rule set.
+RUFF_VERSION := ruff==0.15.15
+
 .PHONY: help build install dev test clean daemon-build daemon-release test-e2e docker-build docker-down
 
 help:
@@ -74,15 +77,18 @@ docker-down:
 lint: $(RUFF)
 	$(RUFF) check .
 
+# `check --fix` exits non-zero when unfixable errors remain, which would stop
+# make before the formatter runs -- hence the leading `-`. `make lint` is what
+# gates on remaining errors.
 .PHONY: format
 format: $(RUFF)
-	$(RUFF) check --fix .
+	-$(RUFF) check --fix .
 	$(RUFF) format .
 
 $(RUFF):
 	@echo "Installing ruff..."
 	@python3 -m venv .venv || true
-	@.venv/bin/pip install --quiet ruff
+	@.venv/bin/pip install --quiet '$(RUFF_VERSION)'
 	@echo "Ruff installed successfully"
 
 $(PYTEST):
