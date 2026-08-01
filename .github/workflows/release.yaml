@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux builds target musl and link statically, so one binary per arch
+          # runs on any distro regardless of glibc version.
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+            asset: sandd-linux-amd64
+          - runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-musl
+            asset: sandd-linux-arm64
+          - runner: macos-13
+            target: x86_64-apple-darwin
+            asset: sandd-darwin-amd64
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            asset: sandd-darwin-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+
+      - name: Install musl tools
+        if: endsWith(matrix.target, '-musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build daemon
+        run: cargo build --package sandd --release --locked --target ${{ matrix.target }}
+
+      - name: Rename binary
+        run: mv target/${{ matrix.target }}/release/sandd ${{ matrix.asset }}
+
+      - name: Verify static linking
+        if: endsWith(matrix.target, '-musl')
+        run: |
+          # rustc emits a static-PIE for musl targets, which `file` reports as
+          # "static-pie linked" rather than "statically linked" -- accept either.
+          file ${{ matrix.asset }}
+          if ! file ${{ matrix.asset }} | grep -qE "static-pie linked|statically linked"; then
+            echo "::error::Expected a statically linked musl binary."
+            exit 1
+          fi
+
+      - name: Verify binary runs
+        run: ./${{ matrix.asset }} --help
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum sandd-* > sandd-checksums.txt
+          cat sandd-checksums.txt
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            artifacts/*

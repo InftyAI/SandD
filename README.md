@@ -80,10 +80,16 @@ make install
 
 ```bash
 # Direct mode (no tunnel)
-curl -fsSL https://get.sandd.dev/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/InftyAI/SandD/main/hack/scripts/install.sh | sudo bash
 
 # Tunnel mode (with Tailscale)
-curl -fsSL https://get.sandd.dev/install.sh | sudo bash -s -- --tunnel
+curl -fsSL https://raw.githubusercontent.com/InftyAI/SandD/main/hack/scripts/install.sh | sudo bash -s -- --tunnel
+```
+
+This installs the latest release. To pin a specific version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/InftyAI/SandD/main/hack/scripts/install.sh | sudo bash -s -- --version v0.1.0
 ```
 
 #### Alternative Methods
@@ -99,6 +105,11 @@ git clone https://github.com/InftyAI/SandD
 cd SandD
 make daemon-release
 # Binary at: ./target/release/sandd
+```
+
+**Build from the main branch:**
+```bash
+cargo install --git https://github.com/InftyAI/SandD sandd
 ```
 
 ## Quick Start
