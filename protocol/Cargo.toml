@@ -1,7 +1,11 @@
 [package]
 name = "sandd-protocol"
-version = "0.0.0"
+version = "0.0.1"
 edition = "2021"
+license = "Apache-2.0"
+description = "Shared wire protocol types for the SandD sandbox daemon and controller."
+repository = "https://github.com/InftyAI/SandD"
+homepage = "https://github.com/InftyAI/SandD"
 
 [dependencies]
 serde = { workspace = true }

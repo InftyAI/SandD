@@ -1727,7 +1727,7 @@ dependencies = [
 
 [[package]]
 name = "sandd-protocol"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "base64",
  "serde",

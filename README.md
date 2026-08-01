@@ -6,7 +6,7 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 Rust-powered WebSocket server with Python API for remote command execution and interactive sessions.
 
@@ -185,4 +185,4 @@ We welcome any kind of contributions, feedback, and suggestions! See [DEVELOP.md
 
 ## License
 
-MIT
+Apache-2.0 — see [LICENSE](./LICENSE).

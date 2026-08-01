@@ -8,7 +8,7 @@ version = "0.0.1"
 description = "A lightweight sandbox daemon for secure agent execution in isolated environments."
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.8"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 authors = [
     {name = "InftyAI", email = "contact@inftyai.com"}
 ]
@@ -43,6 +43,12 @@ exclude = [
     "/sandd",        # Only exclude root sandd/ directory (Rust daemon source)
     "target/**/*",
     ".git/**/*",
+    # `maturin develop` writes the built extension into python/sandd/; leaving it
+    # in place makes `maturin build` fail on a duplicate wheel entry.
+    "python/sandd/_core*.so",
+    "python/sandd/_core*.pyd",
+    "python/sandd/__pycache__/**/*",
+    "python/tests/**/*",
 ]
 
 [tool.pytest.ini_options]

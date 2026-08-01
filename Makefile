@@ -137,10 +137,32 @@ publish-pypi: $(MATURIN) build-wheels
 	$(MATURIN) upload target/wheels/*.whl --skip-existing --username __token__ --password $(INFTYAI_PYPI_TOKEN)
 
 .PHONY: publish-crate
-# Publish daemon binary to crates.io
+# Publish the daemon to crates.io. sandd-protocol must go first: cargo strips the
+# `path` dependency on publish and resolves it from the registry instead, so the
+# protocol crate has to already be there. `--skip-existing`-style reruns aren't
+# supported, so a version already published is treated as success.
 publish-crate:
+	@PROTO_VERSION=$$(grep -m1 '^version' protocol/Cargo.toml | cut -d'"' -f2); \
+	if curl -sf "https://index.crates.io/sa/nd/sandd-protocol" 2>/dev/null \
+	     | grep -q "\"vers\":\"$$PROTO_VERSION\""; then \
+		echo "sandd-protocol $$PROTO_VERSION already on crates.io; skipping."; \
+	else \
+		echo "Publishing sandd-protocol $$PROTO_VERSION to crates.io..."; \
+		cargo publish --package sandd-protocol; \
+	fi
 	@echo "Publishing sandd daemon to crates.io..."
 	cargo publish --package sandd
+
+.PHONY: publish-crate-dry
+# Same ordering, no uploads -- use this to validate manifests before a release.
+publish-crate-dry:
+	cargo publish --package sandd-protocol --dry-run
+	@echo "NOTE: 'cargo publish --package sandd --dry-run' cannot succeed until"
+	@echo "      sandd-protocol is actually on crates.io."
+
+.PHONY: publish
+# Publish everything: crates.io first, then PyPI.
+publish: publish-crate publish-pypi
 
 .PHONY: benchmark
 benchmark: $(MATURIN)
