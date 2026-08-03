@@ -6,7 +6,7 @@
 #   ↑
 #   └─ Tailscale client (installed in this image)
 #
-# Build: docker build -f Dockerfile.server-tunnel -t inftyai/sandd-server-tunnel:latest .
+# Build: docker build -f hack/docker/Dockerfile.server-tunnel -t inftyai/sandd-server-tunnel:latest .
 # Run:   docker run --cap-add NET_ADMIN --device /dev/net/tun inftyai/sandd-server-tunnel:latest
 
 FROM python:3.11-slim-bookworm
