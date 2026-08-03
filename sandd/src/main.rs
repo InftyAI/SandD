@@ -681,7 +681,7 @@ async fn setup_tunnel(args: &Args) -> Result<()> {
 
     info!("Starting tailscaled...");
 
-    // Start tailscaled in background (if not already running).
+    // Start tailscaled in background.
     //
     // --socks5-server is what makes tunnel mode actually work: with
     // --tun=userspace-networking there is no TUN device and thus no kernel route
