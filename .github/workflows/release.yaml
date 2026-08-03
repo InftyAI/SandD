@@ -91,12 +91,23 @@ jobs:
           sha256sum sandd-* > sandd-checksums.txt
           cat sandd-checksums.txt
 
-      - name: Create release
+      - name: Create or update release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            artifacts/*
+          # A release for this tag may already exist (e.g. cut by hand, or a
+          # re-run of this workflow). `gh release create` hard-fails in that
+          # case, so upload the assets to the existing release instead.
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; uploading assets."
+            gh release upload "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber \
+              artifacts/*
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              artifacts/*
+          fi
