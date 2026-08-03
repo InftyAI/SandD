@@ -1,0 +1,137 @@
+# Tunnel-mode E2E — REGRESSION coverage for the userspace-networking dial path.
+#
+# WHY THIS EXISTS (the bug it guards against):
+#   The direct-mode e2e (docker-compose.e2e.yml) and examples/tunnel-simple both
+#   let the daemon reach the controller over the shared Docker BRIDGE (via the
+#   `controller` hostname / host.docker.internal). That means the tailnet is set
+#   up but NEVER load-bearing — a plain socket always had a route. So the one path
+#   Nebula actually uses in prod — an UNPRIVILEGED daemon in
+#   `--tun=userspace-networking`, where the tailnet has NO kernel route and the
+#   WebSocket must traverse tailscaled's SOCKS5 proxy — had zero coverage, and a
+#   regression there (daemons join the mesh yet `Active daemons: 0`) shipped.
+#
+# HOW THIS TEST FORCES THE MESH PATH:
+#   The daemon dials `ws://controller.sandd.local:8765/ws` — a MagicDNS name. The
+#   Docker embedded DNS only knows the container name `controller`, NOT the
+#   `.sandd.local` FQDN, so the bridge cannot resolve (let alone route) it. The
+#   name resolves ONLY inside tailscaled (MagicDNS) to the controller's 100.64.x
+#   mesh IP, and — because the daemon runs userspace-networking with no route to
+#   100.64.0.0/10 — the only way the WebSocket connects is THROUGH the SOCKS5 proxy
+#   with remote DNS (socks5h). Without that wiring in sandd, this test hangs at
+#   "daemon failed to connect"; with it, the daemon connects and exec works.
+#
+# ASYMMETRY (mirrors Nebula, deliberately):
+#   - controller: NET_ADMIN + /dev/net/tun. It is the INFRA side (in-cluster), and
+#     accepting INBOUND mesh connections on a normal listening socket needs a real
+#     TUN. This is not the constrained side, so privilege here is fine.
+#   - daemon: UNPRIVILEGED, userspace-networking. This is the TENANT side (the GPU
+#     workload container) — exactly what must work without NET_ADMIN/TUN.
+#
+# Orchestrated by python/tests/test_e2e_tunnel.py (mints the auth key between
+# `up headscale` and `up controller daemon`). Not part of the default e2e run.
+
+services:
+  # Headscale coordination server — assigns mesh IPs, runs MagicDNS for
+  # *.sandd.local (see base_domain in the example's headscale-config.yaml).
+  headscale:
+    image: headscale/headscale:0.23
+    command: serve
+    volumes:
+      # Reuse the example's config verbatim: magic_dns: true, base_domain:
+      # sandd.local — that base_domain is what makes controller.sandd.local resolve.
+      - ../../examples/tunnel-simple/headscale-config.yaml:/etc/headscale/config.yaml:ro
+      - headscale-data:/var/lib/headscale
+    networks:
+      - mesh
+    environment:
+      - TZ=UTC
+
+  # Controller — the SandD server, on the mesh. Loops list_daemons()+exec and
+  # prints distinctive markers the test greps for. NET_ADMIN/TUN: infra side.
+  controller:
+    hostname: controller
+    build:
+      context: ../..
+      dockerfile: hack/docker/Dockerfile.server-tunnel
+    command:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        echo "[ctrl] starting tailscaled (kernel TUN, infra side)"
+        tailscaled --state=/var/lib/tailscale/tailscaled.state &
+        sleep 3
+        tailscale up \
+          --authkey="${SANDD_TUNNEL_AUTH_KEY:-}" \
+          --login-server=http://headscale:8080 \
+          --hostname=controller \
+          --accept-routes
+        echo "[ctrl] mesh IP: $$(tailscale ip -4)"
+        python3 -u << 'PYEOF'
+        import os, time
+        from sandd import Server, TunnelConfig
+        cfg = TunnelConfig(authkey=os.environ["SANDD_TUNNEL_AUTH_KEY"],
+                           server="http://headscale:8080")
+        # The server joins the mesh via the running tailscaled/TUN above and
+        # listens on :8765 across it.
+        server = Server(host="0.0.0.0", port=8765, connect="tunnel", tunnel_config=cfg)
+        print("[ctrl] controller ready, waiting for daemons", flush=True)
+        seen = set()
+        while True:
+            for did in server.list_daemons():
+                if did not in seen:
+                    seen.add(did)
+                    print(f"[ctrl] DAEMON_CONNECTED {did}", flush=True)
+                r = server.exec(did, "hostname")
+                if r.success:
+                    print(f"[ctrl] EXEC_OK {did} {r.stdout.strip()}", flush=True)
+            time.sleep(2)
+        PYEOF
+    environment:
+      - SANDD_TUNNEL_AUTH_KEY=${SANDD_TUNNEL_AUTH_KEY:-}
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    depends_on:
+      - headscale
+    networks:
+      - mesh
+
+  # Daemon — the TENANT side. UNPRIVILEGED, userspace-networking. Dials the
+  # controller by its MagicDNS name so the bridge cannot carry the connection.
+  daemon:
+    build:
+      context: ../..
+      dockerfile: hack/docker/Dockerfile.daemon-tunnel
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        echo "[daemon] starting sandd --tunnel (userspace-networking, unprivileged)"
+        # sandd itself brings up tailscaled --tun=userspace-networking with the
+        # SOCKS5 proxy, joins the mesh, and dials the controller THROUGH the proxy.
+        # The MagicDNS name is resolved remotely by tailscaled (socks5h), never on
+        # the Docker bridge — so this only succeeds over the mesh.
+        exec sandd \
+          --server-url=ws://controller.sandd.local:8765/ws \
+          --daemon-id=tunnel-daemon-1 \
+          --tunnel \
+          --tunnel-authkey="${SANDD_TUNNEL_AUTH_KEY:-}" \
+          --tunnel-server=http://headscale:8080
+    environment:
+      - SANDD_TUNNEL_AUTH_KEY=${SANDD_TUNNEL_AUTH_KEY:-}
+      - RUST_LOG=info
+    # NO cap_add, NO devices — this is the whole point: it must work unprivileged.
+    depends_on:
+      - headscale
+      - controller
+    networks:
+      - mesh
+
+volumes:
+  headscale-data:
+
+networks:
+  mesh:
+    driver: bridge

@@ -15,6 +15,13 @@ use sysinfo::System;
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
 use tracing::{debug, error, info, warn};
 
+/// Address of the SOCKS5 proxy tailscaled exposes in tunnel mode (see
+/// setup_tunnel). In --tun=userspace-networking there is no kernel route to the
+/// tailnet, so the daemon dials the controller THROUGH this proxy to reach mesh
+/// peers; using it with remote DNS also lets MagicDNS names resolve inside
+/// tailscaled. Localhost-only: reachable solely by this container's daemon.
+const TUNNEL_SOCKS_PROXY: &str = "127.0.0.1:1055";
+
 #[derive(Parser, Debug)]
 #[command(name = "sandd")]
 #[command(
@@ -100,6 +107,7 @@ async fn main() -> Result<()> {
             &daemon_id,
             args.heartbeat_interval,
             labels.clone(),
+            args.tunnel,
         )
         .await
         {
@@ -117,6 +125,7 @@ async fn connect_and_serve(
     daemon_id: &str,
     heartbeat_interval: u64,
     labels: HashMap<String, String>,
+    tunnel: bool,
 ) -> Result<()> {
     info!("Connecting to server at {}", server_url);
 
@@ -128,6 +137,47 @@ async fn connect_and_serve(
         tokio_tungstenite::tungstenite::http::HeaderValue::from_static("sandd.v1"),
     );
 
+    // Two transports, ONE serve loop (generic over the stream):
+    //   - tunnel mode: the tailnet has no kernel route in userspace-networking, so
+    //     open the TCP hop THROUGH tailscaled's SOCKS5 proxy, then run the
+    //     WebSocket over that socket. The target host is passed to the proxy as a
+    //     name (not pre-resolved locally), so MagicDNS names resolve inside
+    //     tailscaled ("socks5h" semantics).
+    //   - direct mode: unchanged — dial the server straight with connect_async.
+    if tunnel {
+        let uri = request.uri().clone();
+        let host = uri
+            .host()
+            .ok_or_else(|| anyhow::anyhow!("tunnel: server URL has no host: {}", server_url))?
+            .to_string();
+        // ws:// -> 80, wss:// -> 443 if unspecified; Nebula sets an explicit :8765.
+        let port = uri.port_u16().unwrap_or(match uri.scheme_str() {
+            Some("wss") => 443,
+            _ => 80,
+        });
+
+        info!(
+            "Dialing {}:{} via tailscaled SOCKS5 proxy {}",
+            host, port, TUNNEL_SOCKS_PROXY
+        );
+        // (host, port) with a non-IP host becomes a SOCKS "domain" target, so
+        // tailscaled does the DNS — this is what makes MagicDNS names work.
+        let socks = tokio_socks::tcp::Socks5Stream::connect(TUNNEL_SOCKS_PROXY, (host.as_str(), port))
+            .await
+            .with_context(|| {
+                format!(
+                    "tunnel: failed to reach {}:{} through SOCKS5 proxy {} (is tailscaled up and joined?)",
+                    host, port, TUNNEL_SOCKS_PROXY
+                )
+            })?;
+
+        let (ws_stream, response) = tokio_tungstenite::client_async_tls(request, socks)
+            .await
+            .context("tunnel: WebSocket handshake over SOCKS5 failed")?;
+        log_negotiated_protocol(&response);
+        return serve(ws_stream, daemon_id, heartbeat_interval, labels).await;
+    }
+
     let (ws_stream, response) = match tokio_tungstenite::connect_async(request).await {
         Ok(result) => result,
         Err(e) => {
@@ -135,14 +185,33 @@ async fn connect_and_serve(
             return Err(anyhow::anyhow!("Failed to connect to server: {}", e));
         }
     };
+    log_negotiated_protocol(&response);
+    serve(ws_stream, daemon_id, heartbeat_interval, labels).await
+}
 
-    // Check negotiated protocol
+/// Log the WebSocket subprotocol the server negotiated (shared by both transports).
+fn log_negotiated_protocol(
+    response: &tokio_tungstenite::tungstenite::handshake::client::Response,
+) {
     if let Some(protocol) = response.headers().get("sec-websocket-protocol") {
         info!("Negotiated protocol: {:?}", protocol);
     } else {
         warn!("Server did not negotiate protocol");
     }
+}
 
+/// Run the daemon session over an established WebSocket stream. Generic over the
+/// transport so the direct (connect_async) and tunnel (SOCKS5) paths share one
+/// implementation.
+async fn serve<S>(
+    ws_stream: tokio_tungstenite::WebSocketStream<S>,
+    daemon_id: &str,
+    heartbeat_interval: u64,
+    labels: HashMap<String, String>,
+) -> Result<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     info!("WebSocket connection established");
 
     let (mut ws_tx, mut ws_rx) = ws_stream.split();
@@ -612,9 +681,18 @@ async fn setup_tunnel(args: &Args) -> Result<()> {
 
     info!("Starting tailscaled...");
 
-    // Start tailscaled in background (if not already running)
+    // Start tailscaled in background (if not already running).
+    //
+    // --socks5-server is what makes tunnel mode actually work: with
+    // --tun=userspace-networking there is no TUN device and thus no kernel route
+    // to the tailnet (100.64.0.0/10), so a plain socket to the controller's mesh
+    // address always fails. The SOCKS5 proxy is the entry point INTO tailscaled's
+    // userspace network stack; connect_and_serve dials the controller through it
+    // (see TUNNEL_SOCKS_PROXY) so the WebSocket rides the mesh. Bound to localhost
+    // so only this container's daemon can use it.
     let _tailscaled = Command::new("tailscaled")
         .arg("--tun=userspace-networking")
+        .arg(format!("--socks5-server={}", TUNNEL_SOCKS_PROXY))
         .arg("--state=/var/lib/tailscale/tailscaled.state")
         .spawn()
         .context("Failed to start tailscaled")?;
