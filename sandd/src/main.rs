@@ -157,7 +157,11 @@ async fn main() -> Result<()> {
                 info!("Shutdown complete");
                 return Ok(());
             }
-            Ok(ServeOutcome::Disconnected) => info!("Connection closed gracefully"),
+            // The specific reason (server Close, socket error, stream end,
+            // registration failure) is already logged at the break site inside
+            // serve(); avoid claiming "gracefully" here since Disconnected also
+            // covers error paths. main() only needs to know: reconnect.
+            Ok(ServeOutcome::Disconnected) => info!("Connection closed, reconnecting"),
             Err(e) => error!("Connection error: {}", e),
         }
 
@@ -348,9 +352,24 @@ where
     tokio::pin!(shutdown);
     let outcome = loop {
         tokio::select! {
-            // Prefer draining inbound messages; the signal branch still fires
-            // promptly because recv() yields between messages.
+            // Poll shutdown FIRST. With `biased`, tokio checks branches top to
+            // bottom and only reaches a later branch when earlier ones are
+            // Pending; if the message branch were first and inbound messages were
+            // continuously ready (buffered / high throughput), the shutdown branch
+            // could starve and delay the Close frame + process exit. Shutdown is
+            // usually Pending, so in normal operation this falls straight through
+            // to draining messages; it can't starve them because shutdown fires
+            // once and breaks the loop.
             biased;
+
+            _ = &mut shutdown => {
+                // Best-effort clean close so the controller deregisters us now.
+                let mut tx = ws_tx_clone.lock().await;
+                if let Err(e) = tx.send(WsMessage::Close(None)).await {
+                    warn!("Failed to send Close frame on shutdown: {}", e);
+                }
+                break ServeOutcome::Shutdown;
+            }
 
             msg = ws_rx.next() => {
                 let msg = match msg {
@@ -390,15 +409,6 @@ where
                 {
                     error!("Error handling message: {}", e);
                 }
-            }
-
-            _ = &mut shutdown => {
-                // Best-effort clean close so the controller deregisters us now.
-                let mut tx = ws_tx_clone.lock().await;
-                if let Err(e) = tx.send(WsMessage::Close(None)).await {
-                    warn!("Failed to send Close frame on shutdown: {}", e);
-                }
-                break ServeOutcome::Shutdown;
             }
         }
     };
@@ -892,17 +902,23 @@ mod shutdown_tests {
     async fn shutdown_sends_close_and_returns_shutdown() {
         let (client, mut server) = ws_pair().await;
 
-        // Fire shutdown shortly after serve starts its loop. A ready future
-        // would race registration; a short delay keeps the test deterministic
-        // without depending on wall-clock timing for correctness.
+        // Trigger shutdown via a oneshot fired AFTER registration is acked, so
+        // the ordering is deterministic (no wall-clock sleep racing the
+        // handshake). `serve` awaits the receiver; mapping away the RecvError
+        // matches its `Future<Output = ()>` bound and means a dropped sender also
+        // resolves shutdown rather than hanging.
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
         let shutdown = async {
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            let _ = shutdown_rx.await;
         };
 
         let daemon = serve(client, "test-daemon", 3600, HashMap::new(), shutdown);
 
         let controller = async {
             ack_registration(&mut server).await;
+            // Registration is complete and serve() is now in its select! loop;
+            // fire shutdown deterministically.
+            shutdown_tx.send(()).unwrap();
             // The controller side should observe a Close frame. Tolerate any
             // pre-close traffic (e.g. a heartbeat), though the 3600s interval
             // makes that unlikely in-test.
