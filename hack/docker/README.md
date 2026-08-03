@@ -10,22 +10,22 @@ This directory contains Docker-related files for building and testing SandD.
 
 - **`Dockerfile.server-tunnel`** - Server with Tailscale (build from source)
   - Use: Development and testing
-  - Build: `docker build -f hack/docker/Dockerfile.server-tunnel -t inftyai/sandd-server:latest-tunnel .`
+  - Build: `docker build -f hack/docker/Dockerfile.server-tunnel -t inftyai/sandd-server-tunnel:latest .`
   - See: [docs/proposals/TUNNEL.md](../../docs/proposals/TUNNEL.md)
 
 - **`Dockerfile.server-tunnel-release`** - Server with Tailscale (uses PyPI release)
   - Use: Production deployments
-  - Build: `docker build -f hack/docker/Dockerfile.server-tunnel-release --build-arg SANDD_VERSION=0.1.0 -t inftyai/sandd-server:v0.1.0-tunnel .`
+  - Build: `docker build -f hack/docker/Dockerfile.server-tunnel-release --build-arg SANDD_VERSION=0.1.0 -t inftyai/sandd-server-tunnel:v0.1.0 .`
 
 #### Daemon (Worker) Images
 
 - **`Dockerfile.daemon-tunnel`** - Daemon with Tailscale (build from source)
   - Use: Development and testing
-  - Build: `docker build -f hack/docker/Dockerfile.daemon-tunnel -t inftyai/sandd-daemon:latest-tunnel .`
+  - Build: `docker build -f hack/docker/Dockerfile.daemon-tunnel -t inftyai/sandd-tunnel:latest .`
 
 - **`Dockerfile.daemon-tunnel-release`** - Daemon with Tailscale (uses GitHub release)
   - Use: Production deployments
-  - Build: `docker build -f hack/docker/Dockerfile.daemon-tunnel-release --build-arg SANDD_VERSION=v0.1.0 -t inftyai/sandd-daemon:v0.1.0-tunnel .`
+  - Build: `docker build -f hack/docker/Dockerfile.daemon-tunnel-release --build-arg SANDD_VERSION=v0.1.0 -t inftyai/sandd-tunnel:v0.1.0 .`
 
 #### Test Images (Direct Mode)
 
@@ -46,7 +46,7 @@ This directory contains Docker-related files for building and testing SandD.
 
 ```bash
 # From repo root
-docker build -f hack/docker/Dockerfile.server-tunnel -t inftyai/sandd-server:latest-tunnel .
+docker build -f hack/docker/Dockerfile.server-tunnel -t inftyai/sandd-server-tunnel:latest .
 ```
 
 ### Build test images

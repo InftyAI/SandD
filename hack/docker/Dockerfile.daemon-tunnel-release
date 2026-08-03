@@ -3,8 +3,8 @@
 #
 # Build: docker build -f hack/docker/Dockerfile.daemon-tunnel-release \
 #        --build-arg SANDD_VERSION=v0.1.0 \
-#        -t inftyai/sandd-daemon:v0.1.0-tunnel .
-# Run:   docker run --cap-add NET_ADMIN --device /dev/net/tun inftyai/sandd-daemon:v0.1.0-tunnel
+#        -t inftyai/sandd-tunnel:v0.1.0 .
+# Run:   docker run --cap-add NET_ADMIN --device /dev/net/tun inftyai/sandd-tunnel:v0.1.0
 
 FROM debian:bookworm-slim
 

@@ -1,8 +1,10 @@
 # SandD Server with Tunnel Support (Release Version)
 # Uses published PyPI package instead of building from source
 #
-# Build: docker build -f hack/docker/Dockerfile.server-tunnel-release -t inftyai/sandd-server:v0.1.0-tunnel .
-# Run:   docker run --cap-add NET_ADMIN --device /dev/net/tun inftyai/sandd-server:v0.1.0-tunnel
+# Build: docker build -f hack/docker/Dockerfile.server-tunnel-release \
+#        --build-arg SANDD_VERSION=0.1.0 \
+#        -t inftyai/sandd-server-tunnel:v0.1.0 .
+# Run:   docker run --cap-add NET_ADMIN --device /dev/net/tun inftyai/sandd-server-tunnel:v0.1.0
 
 FROM python:3.11-slim-bookworm
 

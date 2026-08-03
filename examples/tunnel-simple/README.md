@@ -49,7 +49,7 @@ You can either:
 
 ```bash
 # Option B: Build manually from repo root
-docker build -f hack/docker/Dockerfile.server-tunnel -t inftyai/sandd-server:latest-tunnel .
+docker build -f hack/docker/Dockerfile.server-tunnel -t inftyai/sandd-server-tunnel:latest .
 docker build -f hack/docker/Dockerfile.debian -t inftyai/sandd-daemon:debian .
 ```
 
@@ -191,7 +191,7 @@ sandd --server-url ws://100.64.0.1:8765/ws \
 ### Dockerfile
 
 ```dockerfile
-FROM inftyai/sandd-server:latest-tunnel
+FROM inftyai/sandd-server-tunnel:latest
 
 COPY my_controller.py .
 CMD ["python", "my_controller.py"]
