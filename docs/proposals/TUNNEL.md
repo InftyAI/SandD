@@ -205,7 +205,7 @@ Even if intercepted: unreadable gibberish
 
 **Tailscale Client**
 - VPN client that connects to Headscale
-- Runs in each container (installed via `hack/docker/Dockerfile.tunnel`)
+- Runs in each container (installed via `hack/docker/Dockerfile.server-tunnel`)
 - Joins the mesh, creates tunnel interface
 
 **Your Application = Controller**
@@ -237,7 +237,7 @@ Daemon → Internet → Controller (public IP:8765)
 
 ```
 
-**Key:** `hack/docker/Dockerfile.tunnel` installs **Tailscale client** (not Headscale server). Headscale runs separately.
+**Key:** `hack/docker/Dockerfile.server-tunnel` installs **Tailscale client** (not Headscale server). Headscale runs separately.
 
 ---
 
@@ -263,7 +263,7 @@ server = Server(connect="tunnel", tunnel_config=config)
 
 Use the tunnel-enabled image. Build it yourself like this:
 ```bash
-docker build -f hack/docker/Dockerfile.tunnel -t my-app:tunnel .
+docker build -f hack/docker/Dockerfile.server-tunnel -t my-app:tunnel .
 ```
 
 ### Running
@@ -284,7 +284,7 @@ docker run \
 
 ```bash
 # From SandD repo
-docker build -f hack/docker/Dockerfile.tunnel -t inftyai/sandd-server:latest-tunnel .
+docker build -f hack/docker/Dockerfile.server-tunnel -t inftyai/sandd-server:latest-tunnel .
 ```
 
 ### 2. Run Headscale
@@ -543,7 +543,7 @@ A: Attacker can join your mesh. Use single-use keys and revoke immediately if le
 **Q: Why not install Headscale in my container?**
 A: Headscale is a coordination server - you only need one for the entire mesh. Like DNS: one server, many clients.
 
-**Q: What's in `hack/docker/Dockerfile.tunnel`?**
+**Q: What's in `hack/docker/Dockerfile.server-tunnel`?**
 A: Python 3.11, SandD library, and Tailscale client (not Headscale server).
 
 **Q: Do I need NET_ADMIN?**
