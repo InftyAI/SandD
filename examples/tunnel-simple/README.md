@@ -49,7 +49,7 @@ You can either:
 
 ```bash
 # Option B: Build manually from repo root
-docker build -f hack/docker/Dockerfile.tunnel -t inftyai/sandd-server:latest-tunnel .
+docker build -f hack/docker/Dockerfile.server-tunnel -t inftyai/sandd-server:latest-tunnel .
 docker build -f hack/docker/Dockerfile.debian -t inftyai/sandd-daemon:debian .
 ```
 

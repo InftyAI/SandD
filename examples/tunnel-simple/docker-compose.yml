@@ -31,7 +31,7 @@ services:
     hostname: controller
     build:
       context: ../..
-      dockerfile: hack/docker/Dockerfile.tunnel
+      dockerfile: hack/docker/Dockerfile.server-tunnel
     command:
       - /bin/bash
       - -c

@@ -8,14 +8,14 @@ This directory contains Docker-related files for building and testing SandD.
 
 #### Server (Controller) Images
 
-- **`Dockerfile.tunnel`** - Server with Tailscale (build from source)
+- **`Dockerfile.server-tunnel`** - Server with Tailscale (build from source)
   - Use: Development and testing
-  - Build: `docker build -f hack/docker/Dockerfile.tunnel -t inftyai/sandd-server:latest-tunnel .`
+  - Build: `docker build -f hack/docker/Dockerfile.server-tunnel -t inftyai/sandd-server:latest-tunnel .`
   - See: [docs/proposals/TUNNEL.md](../../docs/proposals/TUNNEL.md)
 
-- **`Dockerfile.tunnel-release`** - Server with Tailscale (uses PyPI release)
+- **`Dockerfile.server-tunnel-release`** - Server with Tailscale (uses PyPI release)
   - Use: Production deployments
-  - Build: `docker build -f hack/docker/Dockerfile.tunnel-release --build-arg SANDD_VERSION=0.1.0 -t inftyai/sandd-server:v0.1.0-tunnel .`
+  - Build: `docker build -f hack/docker/Dockerfile.server-tunnel-release --build-arg SANDD_VERSION=0.1.0 -t inftyai/sandd-server:v0.1.0-tunnel .`
 
 #### Daemon (Worker) Images
 
@@ -46,7 +46,7 @@ This directory contains Docker-related files for building and testing SandD.
 
 ```bash
 # From repo root
-docker build -f hack/docker/Dockerfile.tunnel -t inftyai/sandd-server:latest-tunnel .
+docker build -f hack/docker/Dockerfile.server-tunnel -t inftyai/sandd-server:latest-tunnel .
 ```
 
 ### Build test images
