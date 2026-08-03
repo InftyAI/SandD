@@ -78,6 +78,8 @@ filetime = "0.2"
 [dev-dependencies]
 tempfile = "3.8"
 criterion = { version = "0.5", features = ["async_tokio"] }
+# Used only by shutdown tests to raise SIGTERM to our own process.
+libc = "0.2"
 
 [[bench]]
 name = "snapshot_bench"
