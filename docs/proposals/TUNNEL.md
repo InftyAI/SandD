@@ -284,7 +284,7 @@ docker run \
 
 ```bash
 # From SandD repo
-docker build -f hack/docker/Dockerfile.server-tunnel -t inftyai/sandd-server:latest-tunnel .
+docker build -f hack/docker/Dockerfile.server-tunnel -t inftyai/sandd-server-tunnel:latest .
 ```
 
 ### 2. Run Headscale
@@ -335,7 +335,7 @@ docker run \
   --cap-add NET_ADMIN \
   --device /dev/net/tun \
   -v $(pwd)/controller.py:/app/controller.py \
-  inftyai/sandd-server:latest-tunnel \
+  inftyai/sandd-server-tunnel:latest \
   python /app/controller.py
 ```
 
