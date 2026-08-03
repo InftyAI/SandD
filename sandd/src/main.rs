@@ -23,6 +23,7 @@ use tracing::{debug, error, info, warn};
 const TUNNEL_SOCKS_PROXY: &str = "127.0.0.1:1055";
 
 /// Why the serve loop returned, so main() knows whether to reconnect or exit.
+#[derive(Debug, PartialEq, Eq)]
 enum ServeOutcome {
     /// The connection dropped (server closed, socket error). main() reconnects.
     Disconnected,
@@ -220,7 +221,7 @@ async fn connect_and_serve(
             .await
             .context("tunnel: WebSocket handshake over SOCKS5 failed")?;
         log_negotiated_protocol(&response);
-        return serve(ws_stream, daemon_id, heartbeat_interval, labels).await;
+        return serve(ws_stream, daemon_id, heartbeat_interval, labels, shutdown_signal()).await;
     }
 
     let (ws_stream, response) = match tokio_tungstenite::connect_async(request).await {
@@ -231,7 +232,7 @@ async fn connect_and_serve(
         }
     };
     log_negotiated_protocol(&response);
-    serve(ws_stream, daemon_id, heartbeat_interval, labels).await
+    serve(ws_stream, daemon_id, heartbeat_interval, labels, shutdown_signal()).await
 }
 
 /// Log the WebSocket subprotocol the server negotiated (shared by both transports).
@@ -248,14 +249,21 @@ fn log_negotiated_protocol(
 /// Run the daemon session over an established WebSocket stream. Generic over the
 /// transport so the direct (connect_async) and tunnel (SOCKS5) paths share one
 /// implementation.
-async fn serve<S>(
+///
+/// `shutdown` is the future that, once resolved, triggers a graceful close: in
+/// production it is `shutdown_signal()` (SIGTERM/SIGINT); tests inject a future
+/// they control so the shutdown path can be exercised without raising a real,
+/// process-wide signal mid-connection.
+async fn serve<S, F>(
     ws_stream: tokio_tungstenite::WebSocketStream<S>,
     daemon_id: &str,
     heartbeat_interval: u64,
     labels: HashMap<String, String>,
+    shutdown: F,
 ) -> Result<ServeOutcome>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    F: std::future::Future<Output = ()>,
 {
     info!("WebSocket connection established");
 
@@ -334,6 +342,10 @@ where
     // controller removes a daemon the moment it sees that Close (server.rs
     // handle_websocket), so a graceful pod deletion deregisters immediately
     // instead of waiting out the ~90s heartbeat-timeout reaper.
+    //
+    // Pin the shutdown future once so it can be polled across loop iterations
+    // without being moved (it may be `!Unpin`).
+    tokio::pin!(shutdown);
     let outcome = loop {
         tokio::select! {
             // Prefer draining inbound messages; the signal branch still fires
@@ -380,7 +392,7 @@ where
                 }
             }
 
-            _ = shutdown_signal() => {
+            _ = &mut shutdown => {
                 // Best-effort clean close so the controller deregisters us now.
                 let mut tx = ws_tx_clone.lock().await;
                 if let Err(e) = tx.send(WsMessage::Close(None)).await {
@@ -806,4 +818,155 @@ async fn setup_tunnel(args: &Args) -> Result<()> {
     }
 
     Err(anyhow::anyhow!("Timeout waiting for mesh IP assignment"))
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    //! Tests for the graceful-shutdown path added to `serve`: on a shutdown
+    //! signal the daemon must send a WebSocket Close frame and return
+    //! `ServeOutcome::Shutdown` (so `main` exits instead of reconnecting). The
+    //! Close is what lets the controller deregister the daemon immediately
+    //! rather than waiting out its ~90s heartbeat-timeout reaper.
+    //!
+    //! `serve` takes the shutdown future as a parameter precisely so these tests
+    //! can trigger it deterministically, without raising a real, process-wide
+    //! SIGTERM in the middle of a test run.
+
+    use super::*;
+    use futures_util::{SinkExt, StreamExt};
+    use tokio::net::{TcpListener, TcpStream};
+    use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
+    use tokio_tungstenite::{accept_async, WebSocketStream};
+
+    /// Stand up an in-process WebSocket server on localhost and connect a client
+    /// to it. Returns (client_stream_for_serve, accepted_server_stream). The
+    /// server side lets a test act as the controller: ack registration, then
+    /// observe what the daemon sends (e.g. the Close frame on shutdown).
+    async fn ws_pair() -> (
+        WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>,
+        WebSocketStream<TcpStream>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Accept concurrently with the client dial so neither side blocks.
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            accept_async(stream).await.unwrap()
+        });
+
+        let url = format!("ws://{}/ws", addr);
+        let (client, _resp) = tokio_tungstenite::connect_async(url).await.unwrap();
+        let server = server.await.unwrap();
+        (client, server)
+    }
+
+    /// Play the controller: read the daemon's Register and reply RegisterAck so
+    /// `serve` proceeds past registration into its main loop.
+    async fn ack_registration(server: &mut WebSocketStream<TcpStream>) {
+        let reg = server.next().await.unwrap().unwrap();
+        let text = reg.into_text().unwrap();
+        let msg: Message = serde_json::from_str(&text).unwrap();
+        assert!(
+            matches!(msg, Message::Register { .. }),
+            "expected Register first, got: {:?}",
+            msg
+        );
+        let ack = Message::RegisterAck {
+            success: true,
+            message: "ok".to_string(),
+        };
+        server
+            .send(WsMessage::Text(serde_json::to_string(&ack).unwrap()))
+            .await
+            .unwrap();
+    }
+
+    /// The core regression: when the shutdown future fires, `serve` returns
+    /// `Shutdown` AND the peer receives a Close frame.
+    ///
+    /// `serve`'s future is not `Send` (SessionManager is !Sync), so it can't be
+    /// `tokio::spawn`ed; instead we run it concurrently with the controller side
+    /// via `join!` on the current task.
+    #[tokio::test]
+    async fn shutdown_sends_close_and_returns_shutdown() {
+        let (client, mut server) = ws_pair().await;
+
+        // Fire shutdown shortly after serve starts its loop. A ready future
+        // would race registration; a short delay keeps the test deterministic
+        // without depending on wall-clock timing for correctness.
+        let shutdown = async {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+
+        let daemon = serve(client, "test-daemon", 3600, HashMap::new(), shutdown);
+
+        let controller = async {
+            ack_registration(&mut server).await;
+            // The controller side should observe a Close frame. Tolerate any
+            // pre-close traffic (e.g. a heartbeat), though the 3600s interval
+            // makes that unlikely in-test.
+            let mut saw_close = false;
+            while let Some(frame) = server.next().await {
+                match frame {
+                    Ok(WsMessage::Close(_)) => {
+                        saw_close = true;
+                        break;
+                    }
+                    Ok(_) => continue,
+                    Err(_) => break,
+                }
+            }
+            saw_close
+        };
+
+        let (outcome, saw_close) = tokio::join!(daemon, controller);
+        assert!(saw_close, "daemon did not send a Close frame on shutdown");
+        assert_eq!(outcome.unwrap(), ServeOutcome::Shutdown);
+    }
+
+    /// The counterpart: if the controller closes the connection, `serve` returns
+    /// `Disconnected` (so `main` reconnects) — NOT `Shutdown`. Guards against the
+    /// shutdown branch swallowing ordinary disconnects.
+    #[tokio::test]
+    async fn server_close_returns_disconnected() {
+        let (client, mut server) = ws_pair().await;
+
+        // A shutdown future that never resolves: only the server-close path can
+        // end this session.
+        let shutdown = std::future::pending::<()>();
+
+        let daemon = serve(client, "test-daemon", 3600, HashMap::new(), shutdown);
+
+        let controller = async {
+            ack_registration(&mut server).await;
+            // Controller closes the connection.
+            server.close(None).await.unwrap();
+        };
+
+        let (outcome, ()) = tokio::join!(daemon, controller);
+        assert_eq!(outcome.unwrap(), ServeOutcome::Disconnected);
+    }
+
+    /// `shutdown_signal()` must resolve when the process receives SIGTERM (what
+    /// `kubectl delete pod` / `docker stop` send). Uses a real self-signal; unix
+    /// only. This asserts the wiring, not the WebSocket behavior above.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn shutdown_signal_resolves_on_sigterm() {
+        // Raise SIGTERM to our own process after a short delay, then confirm the
+        // helper's future completes rather than hanging.
+        tokio::spawn(async {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            // SAFETY: raising a signal to our own PID is sound; kill(2) with a
+            // valid signal number has no memory-safety implications.
+            unsafe {
+                libc::raise(libc::SIGTERM);
+            }
+        });
+
+        tokio::time::timeout(Duration::from_secs(5), shutdown_signal())
+            .await
+            .expect("shutdown_signal did not resolve on SIGTERM");
+    }
 }
