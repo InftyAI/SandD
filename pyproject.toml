@@ -55,4 +55,5 @@ exclude = [
 asyncio_mode = "auto"
 markers = [
     "e2e: end-to-end tests with Docker (slow, skip by default)",
+    "tunnel: tunnel-mode (Tailscale/headscale) e2e; needs its own compose stack",
 ]

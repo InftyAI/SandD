@@ -45,6 +45,13 @@ uuid = { workspace = true }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
 futures-util = "0.3"
 
+# SOCKS5 client. In tunnel mode tailscaled runs with --tun=userspace-networking,
+# so the tailnet has NO kernel route: a plain socket to a 100.64.x peer fails. We
+# route the WebSocket THROUGH tailscaled's SOCKS5 proxy instead, and use remote
+# DNS (socks5h) so MagicDNS names (e.g. sandd-controller.nebula.mesh) resolve
+# inside tailscaled. Direct mode is untouched.
+tokio-socks = "0.5"
+
 # Process execution
 tokio-process = "0.2"
 

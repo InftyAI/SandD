@@ -65,3 +65,29 @@ jobs:
 
       - name: Run E2E tests
         run: make test-e2e
+
+  test-e2e-tunnel:
+    name: Tunnel E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Regression coverage for the userspace-networking + SOCKS5 mesh dial path
+      # (an unprivileged daemon reaching the controller only over the tailnet).
+      # The controller container needs /dev/net/tun, which GitHub's Linux runners
+      # provide; the daemon side is deliberately unprivileged.
+      - name: Run tunnel-mode E2E tests
+        run: make test-e2e-tunnel
