@@ -10,17 +10,17 @@ RUFF_VERSION := ruff==0.15.15
 help:
 	@echo "SandD - Sandbox Daemon - Build Commands"
 	@echo ""
-	@echo "  make build          - Build Python package (debug mode)"
-	@echo "  make install        - Install Python package locally"
-	@echo "  make dev            - Install in development mode with hot reload"
-	@echo "  make test           - Run unit and integration tests (fast, no Docker)"
-	@echo "  make test-e2e       - Run direct-mode end-to-end tests with Docker (slow)"
-	@echo "  make test-e2e-tunnel- Run tunnel-mode (Tailscale mesh) e2e tests (slow)"
-	@echo "  make daemon-build   - Build daemon binary (debug)"
-	@echo "  make daemon-release - Build daemon binary (release)"
-	@echo "  make docker-build   - Build Docker image for daemon"
-	@echo "  make docker-down    - Stop and remove Docker containers"
-	@echo "  make clean          - Clean build artifacts"
+	@echo "  make build           - Build Python package (debug mode)"
+	@echo "  make install         - Install Python package locally"
+	@echo "  make dev             - Install in development mode with hot reload"
+	@echo "  make test            - Run unit and integration tests (fast, no Docker)"
+	@echo "  make test-e2e        - Run direct-mode end-to-end tests with Docker (slow)"
+	@echo "  make test-e2e-tunnel - Run tunnel-mode (Tailscale mesh) e2e tests (slow)"
+	@echo "  make daemon-build    - Build daemon binary (debug)"
+	@echo "  make daemon-release  - Build daemon binary (release)"
+	@echo "  make docker-build    - Build Docker image for daemon"
+	@echo "  make docker-down     - Stop and remove Docker containers"
+	@echo "  make clean           - Clean build artifacts"
 
 build: $(MATURIN)
 	$(MATURIN) build -m server/Cargo.toml
