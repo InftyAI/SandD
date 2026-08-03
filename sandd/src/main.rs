@@ -22,6 +22,44 @@ use tracing::{debug, error, info, warn};
 /// tailscaled. Localhost-only: reachable solely by this container's daemon.
 const TUNNEL_SOCKS_PROXY: &str = "127.0.0.1:1055";
 
+/// Why the serve loop returned, so main() knows whether to reconnect or exit.
+enum ServeOutcome {
+    /// The connection dropped (server closed, socket error). main() reconnects.
+    Disconnected,
+    /// We received SIGTERM/SIGINT and closed the connection cleanly. main() exits
+    /// the process instead of reconnecting.
+    Shutdown,
+}
+
+/// Resolve when the process is asked to terminate: SIGTERM (what `kubectl delete
+/// pod` / `docker stop` send) or SIGINT (Ctrl-C). On non-unix, only Ctrl-C.
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        // If we can't install a handler there is nothing sensible to do but keep
+        // running; a failed handler must not take the daemon down.
+        let mut sigterm = match signal(SignalKind::terminate()) {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("Failed to install SIGTERM handler: {}", e);
+                // Fall back to only Ctrl-C.
+                let _ = tokio::signal::ctrl_c().await;
+                return;
+            }
+        };
+        tokio::select! {
+            _ = sigterm.recv() => info!("Received SIGTERM, shutting down"),
+            _ = tokio::signal::ctrl_c() => info!("Received SIGINT, shutting down"),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+        info!("Received Ctrl-C, shutting down");
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(name = "sandd")]
 #[command(
@@ -111,7 +149,14 @@ async fn main() -> Result<()> {
         )
         .await
         {
-            Ok(_) => info!("Connection closed gracefully"),
+            // A clean shutdown (SIGTERM/SIGINT) must NOT reconnect — exit the
+            // process so the pod terminates promptly and the controller sees the
+            // Close frame we just sent.
+            Ok(ServeOutcome::Shutdown) => {
+                info!("Shutdown complete");
+                return Ok(());
+            }
+            Ok(ServeOutcome::Disconnected) => info!("Connection closed gracefully"),
             Err(e) => error!("Connection error: {}", e),
         }
 
@@ -126,7 +171,7 @@ async fn connect_and_serve(
     heartbeat_interval: u64,
     labels: HashMap<String, String>,
     tunnel: bool,
-) -> Result<()> {
+) -> Result<ServeOutcome> {
     info!("Connecting to server at {}", server_url);
 
     // Connect with subprotocol using client builder
@@ -208,7 +253,7 @@ async fn serve<S>(
     daemon_id: &str,
     heartbeat_interval: u64,
     labels: HashMap<String, String>,
-) -> Result<()>
+) -> Result<ServeOutcome>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
@@ -244,7 +289,7 @@ where
                     info!("Registration successful: {}", message);
                 } else {
                     error!("Registration failed: {}", message);
-                    return Ok(());
+                    return Ok(ServeOutcome::Disconnected);
                 }
             }
             _ => {
@@ -284,47 +329,72 @@ where
         }
     });
 
-    // Message processing loop
-    while let Some(msg) = ws_rx.next().await {
-        let msg = match msg {
-            Ok(WsMessage::Text(text)) => text,
-            Ok(WsMessage::Close(_)) => {
-                info!("Server closed connection");
-                break;
-            }
-            Err(e) => {
-                error!("WebSocket error: {}", e);
-                break;
-            }
-            _ => continue,
-        };
+    // Message processing loop. Also races a shutdown signal so that on
+    // SIGTERM/SIGINT we send a WebSocket Close frame BEFORE exiting: the
+    // controller removes a daemon the moment it sees that Close (server.rs
+    // handle_websocket), so a graceful pod deletion deregisters immediately
+    // instead of waiting out the ~90s heartbeat-timeout reaper.
+    let outcome = loop {
+        tokio::select! {
+            // Prefer draining inbound messages; the signal branch still fires
+            // promptly because recv() yields between messages.
+            biased;
 
-        let message: Message = match serde_json::from_str(&msg) {
-            Ok(m) => m,
-            Err(e) => {
-                error!("Failed to parse message: {}", e);
-                continue;
-            }
-        };
+            msg = ws_rx.next() => {
+                let msg = match msg {
+                    Some(Ok(WsMessage::Text(text))) => text,
+                    Some(Ok(WsMessage::Close(_))) => {
+                        info!("Server closed connection");
+                        break ServeOutcome::Disconnected;
+                    }
+                    Some(Err(e)) => {
+                        error!("WebSocket error: {}", e);
+                        break ServeOutcome::Disconnected;
+                    }
+                    None => {
+                        // Stream ended.
+                        break ServeOutcome::Disconnected;
+                    }
+                    _ => continue,
+                };
 
-        // Handle message inline
-        if let Err(e) = handle_message(
-            message,
-            ws_tx_clone.clone(),
-            executor.clone(),
-            session_manager.clone(),
-            snapshot_manager.clone(),
-        )
-        .await
-        {
-            error!("Error handling message: {}", e);
+                let message: Message = match serde_json::from_str(&msg) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        error!("Failed to parse message: {}", e);
+                        continue;
+                    }
+                };
+
+                // Handle message inline
+                if let Err(e) = handle_message(
+                    message,
+                    ws_tx_clone.clone(),
+                    executor.clone(),
+                    session_manager.clone(),
+                    snapshot_manager.clone(),
+                )
+                .await
+                {
+                    error!("Error handling message: {}", e);
+                }
+            }
+
+            _ = shutdown_signal() => {
+                // Best-effort clean close so the controller deregisters us now.
+                let mut tx = ws_tx_clone.lock().await;
+                if let Err(e) = tx.send(WsMessage::Close(None)).await {
+                    warn!("Failed to send Close frame on shutdown: {}", e);
+                }
+                break ServeOutcome::Shutdown;
+            }
         }
-    }
+    };
 
     heartbeat_handle.abort();
     info!("Disconnected from agent");
 
-    Ok(())
+    Ok(outcome)
 }
 
 async fn handle_message<T>(
