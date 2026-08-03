@@ -27,9 +27,10 @@ jobs:
           - runner: ubuntu-22.04-arm
             target: aarch64-unknown-linux-musl
             asset: sandd-linux-arm64
-          - runner: macos-13
-            target: x86_64-apple-darwin
-            asset: sandd-darwin-amd64
+          # No Intel-mac (x86_64-apple-darwin) leg: GitHub is retiring the
+          # macos-13 (Intel) runners, so that job queues indefinitely and — with
+          # `release` gated on `needs: build` — blocks the whole release from
+          # publishing. Apple Silicon (macos-14/arm64) covers modern Macs.
           - runner: macos-14
             target: aarch64-apple-darwin
             asset: sandd-darwin-arm64
