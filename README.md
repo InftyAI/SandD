@@ -185,4 +185,5 @@ We welcome any kind of contributions, feedback, and suggestions! See [DEVELOP.md
 
 ## License
 
-Apache-2.0 — see [LICENSE](./LICENSE).
+Apache-2.0 — see [LICENSE](./LICENSE). Third-party components (e.g. Tailscale, used by
+tunnel mode) are listed in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).

@@ -133,14 +133,29 @@ async fn main() -> Result<()> {
         info!("Labels: {:?}", labels);
     }
 
-    // Handle tunnel mode
     if args.tunnel {
         info!("Tunnel mode enabled");
-        setup_tunnel(&args).await?;
     }
 
-    // Main connection loop with reconnection
+    // Main connection loop with reconnection.
     loop {
+        // In tunnel mode, (re)establish the mesh on EVERY iteration before dialing
+        // the controller. setup_tunnel is idempotent (see its body): first pass it
+        // starts tailscaled + joins; on a reconnect it re-runs `tailscale up`, which
+        // re-registers the node if headscale reaped it. Without this, a reaped daemon
+        // loops forever dialing the controller through a dead tunnel and never rejoins
+        // (container stays Running, node stays gone from headscale). On failure, log
+        // and fall through to the backoff sleep rather than crash — a transient mesh
+        // failure must not kill a long-lived daemon.
+        if args.tunnel {
+            if let Err(e) = setup_tunnel(&args).await {
+                error!("Failed to (re)establish tunnel: {}; retrying", e);
+                warn!("Reconnecting in {} seconds...", args.reconnect_interval);
+                tokio::time::sleep(Duration::from_secs(args.reconnect_interval)).await;
+                continue;
+            }
+        }
+
         match connect_and_serve(
             &args.server_url,
             &daemon_id,
@@ -793,30 +808,49 @@ async fn setup_tunnel(args: &Args) -> Result<()> {
         ));
     }
 
-    info!("Starting tailscaled...");
+    // setup_tunnel is IDEMPOTENT: main()'s reconnect loop calls it before every
+    // connect attempt so a dropped/reaped node re-establishes the mesh (not just the
+    // WebSocket). tailscaled is a long-lived singleton — spawning a second one would
+    // collide on the SOCKS5 port and the state lock — so we only start it if it isn't
+    // already up. `tailscale up`, by contrast, ALWAYS re-runs: it is idempotent when
+    // already connected (cheap no-op) and is exactly what re-activates the node with
+    // headscale after an ephemeral reap. This is the fix for "container Running but
+    // node gone from headscale": before, tailscale up ran once at startup only, so a
+    // reaped daemon looped forever dialing the controller through a dead tunnel and
+    // never re-registered.
+    let tailscaled_running = Command::new("tailscale")
+        .arg("status")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
 
-    // Start tailscaled in background.
-    //
-    // --socks5-server is what makes tunnel mode actually work: with
-    // --tun=userspace-networking there is no TUN device and thus no kernel route
-    // to the tailnet (100.64.0.0/10), so a plain socket to the controller's mesh
-    // address always fails. The SOCKS5 proxy is the entry point INTO tailscaled's
-    // userspace network stack; connect_and_serve dials the controller through it
-    // (see TUNNEL_SOCKS_PROXY) so the WebSocket rides the mesh. Bound to localhost
-    // so only this container's daemon can use it.
-    let _tailscaled = Command::new("tailscaled")
-        .arg("--tun=userspace-networking")
-        .arg(format!("--socks5-server={}", TUNNEL_SOCKS_PROXY))
-        .arg("--state=/var/lib/tailscale/tailscaled.state")
-        .spawn()
-        .context("Failed to start tailscaled")?;
+    if tailscaled_running {
+        info!("tailscaled already running; re-joining mesh");
+    } else {
+        info!("Starting tailscaled...");
+        // --socks5-server is what makes tunnel mode actually work: with
+        // --tun=userspace-networking there is no TUN device and thus no kernel route
+        // to the tailnet (100.64.0.0/10), so a plain socket to the controller's mesh
+        // address always fails. The SOCKS5 proxy is the entry point INTO tailscaled's
+        // userspace network stack; connect_and_serve dials the controller through it
+        // (see TUNNEL_SOCKS_PROXY) so the WebSocket rides the mesh. Bound to localhost
+        // so only this container's daemon can use it.
+        Command::new("tailscaled")
+            .arg("--tun=userspace-networking")
+            .arg(format!("--socks5-server={}", TUNNEL_SOCKS_PROXY))
+            .arg("--state=/var/lib/tailscale/tailscaled.state")
+            .spawn()
+            .context("Failed to start tailscaled")?;
 
-    // Give tailscaled time to start
-    tokio::time::sleep(Duration::from_secs(2)).await;
+        // Give tailscaled time to start
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
 
     info!("Joining mesh network...");
 
-    // Join mesh
+    // Join mesh. Always run (even when tailscaled was already up): if the node was
+    // reaped by headscale this re-registers it; if it's still a valid member this is
+    // an idempotent no-op.
     let output = Command::new("tailscale")
         .arg("up")
         .arg(format!("--authkey={}", authkey))
