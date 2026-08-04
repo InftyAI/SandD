@@ -324,17 +324,30 @@ where
             .context("Failed to initialize snapshot manager")?,
     );
 
-    // Spawn heartbeat task
+    // Spawn heartbeat task. A failed heartbeat send is our ONLY reliable signal
+    // that the connection is dead: over a DERP-relayed mesh, a controller that
+    // vanishes (e.g. pod restart) often produces no TCP FIN/RST on the daemon side,
+    // so `ws_rx.next()` in the loop below blocks forever and never surfaces the
+    // drop. The heartbeat write, by contrast, fails. So on send failure we trip
+    // `dead_tx`, which the select! polls to break the serve loop and let main()
+    // reconnect — without this the daemon wedges half-open until the pod is deleted.
     let ws_tx_clone = Arc::new(tokio::sync::Mutex::new(ws_tx));
     let ws_tx_heartbeat = ws_tx_clone.clone();
+    let (dead_tx, dead_rx) = tokio::sync::oneshot::channel::<()>();
     let heartbeat_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(heartbeat_interval));
+        let mut dead_tx = Some(dead_tx);
         loop {
             interval.tick().await;
             let heartbeat = Message::Heartbeat;
             if let Ok(json) = serde_json::to_string(&heartbeat) {
                 let mut tx = ws_tx_heartbeat.lock().await;
                 if tx.send(WsMessage::Text(json)).await.is_err() {
+                    // Signal the serve loop that the connection is dead so it
+                    // reconnects instead of blocking forever on a half-open read.
+                    if let Some(d) = dead_tx.take() {
+                        let _ = d.send(());
+                    }
                     break;
                 }
             }
@@ -350,6 +363,7 @@ where
     // Pin the shutdown future once so it can be polled across loop iterations
     // without being moved (it may be `!Unpin`).
     tokio::pin!(shutdown);
+    tokio::pin!(dead_rx);
     let outcome = loop {
         tokio::select! {
             // Poll shutdown FIRST. With `biased`, tokio checks branches top to
@@ -369,6 +383,14 @@ where
                     warn!("Failed to send Close frame on shutdown: {}", e);
                 }
                 break ServeOutcome::Shutdown;
+            }
+
+            // Heartbeat send failed => connection is dead. Reconnect. (The Err
+            // arm — heartbeat task gone without signalling — is treated the same:
+            // no live heartbeat means no live connection.)
+            _ = &mut dead_rx => {
+                warn!("Heartbeat send failed, connection is dead; reconnecting");
+                break ServeOutcome::Disconnected;
             }
 
             msg = ws_rx.next() => {
