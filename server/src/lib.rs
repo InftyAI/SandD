@@ -15,7 +15,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
-use tracing_subscriber;
 use uuid::Uuid;
 
 use sandd_protocol::Message;
@@ -106,7 +105,7 @@ impl Server {
 
             // Setup tunnel
             runtime.block_on(async {
-                setup_tunnel_controller(&config)
+                setup_tunnel_controller(&config, verbose)
                     .await
                     .map_err(|e| PyRuntimeError::new_err(format!("Tunnel setup failed: {}", e)))
             })?;
@@ -765,8 +764,8 @@ pub struct PyStats {
 }
 
 /// Setup tunnel for controller
-async fn setup_tunnel_controller(config: &TunnelConfig) -> anyhow::Result<()> {
-    use std::process::Command;
+async fn setup_tunnel_controller(config: &TunnelConfig, verbose: bool) -> anyhow::Result<()> {
+    use std::process::{Command, Stdio};
 
     // Check if tailscale is installed by trying to run it
     let tailscale_check = Command::new("tailscale").arg("version").output();
@@ -780,12 +779,22 @@ async fn setup_tunnel_controller(config: &TunnelConfig) -> anyhow::Result<()> {
 
     tracing::info!("Starting tailscaled...");
 
-    // Start tailscaled in background (if not already running)
-    let _tailscaled = Command::new("tailscaled")
+    // Start tailscaled in the background. The SAME `verbose` flag that gates sandd's own
+    // logging also gates tailscaled's routine chatter: when off, we pass --verbose=-1 to
+    // silence its per-packet magicsock/netmap/health lines and discard its STDOUT, so it
+    // doesn't flood a `kubectl exec` REPL. STDERR is deliberately KEPT: --verbose=-1
+    // already mutes the routine noise there, but a fatal startup failure (bad flag,
+    // permission denied, or another tailscaled holding the state lock) is reported on
+    // stderr and would otherwise be lost — `tailscale up` below only says it can't reach
+    // the daemon, never WHY it exited. Keeping stderr makes those failures diagnosable.
+    let mut tailscaled = Command::new("tailscaled");
+    tailscaled
         .arg("--tun=userspace-networking")
-        .arg("--state=/var/lib/tailscale/tailscaled.state")
-        .spawn()
-        .context("Failed to start tailscaled")?;
+        .arg("--state=/var/lib/tailscale/tailscaled.state");
+    if !verbose {
+        tailscaled.arg("--verbose=-1").stdout(Stdio::null());
+    }
+    let _tailscaled = tailscaled.spawn().context("Failed to start tailscaled")?;
 
     // Give tailscaled time to start
     tokio::time::sleep(Duration::from_secs(2)).await;

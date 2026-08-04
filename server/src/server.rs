@@ -294,11 +294,21 @@ async fn stats_handler(State(registry): State<Arc<DaemonRegistry>>) -> impl Into
 }
 
 async fn heartbeat_monitor(registry: Arc<DaemonRegistry>) {
-    let mut interval = tokio::time::interval(Duration::from_secs(30));
+    // Tick every 5s so an ungraceful death (instance hard-killed, network yanked —
+    // no Close frame, so the immediate remove() on disconnect never fires) is noticed
+    // within ~5s of crossing the threshold, not up to a full tick later.
+    let mut interval = tokio::time::interval(Duration::from_secs(5));
     loop {
         interval.tick().await;
 
-        let removed = registry.cleanup_stale(90); // 90 second timeout
+        // 30s threshold against a 5s daemon heartbeat interval = ~6 missed beats before
+        // reaping. That margin is deliberate: mesh churn (DERP peer reconfig, netmap
+        // propagation) can stall heartbeats for tens of seconds WITHOUT the daemon being
+        // dead, and reaping a daemon whose socket is still open orphans it (its later
+        // heartbeats hit no registry entry and are ignored until the socket truly
+        // breaks). Detection is ~30-35s vs the old ~90-120s; clean disconnects are still
+        // removed instantly on Close (see the remove() on the disconnect path above).
+        let removed = registry.cleanup_stale(30);
         if removed > 0 {
             warn!("Cleaned up {} stale daemon connections", removed);
         }
