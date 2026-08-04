@@ -80,7 +80,7 @@ struct Args {
     reconnect_interval: u64,
 
     /// Heartbeat interval in seconds
-    #[arg(long, default_value = "10")]
+    #[arg(long, default_value = "5")]
     heartbeat_interval: u64,
 
     /// Labels in key=value format (e.g., --label env=prod --label region=us-west)
