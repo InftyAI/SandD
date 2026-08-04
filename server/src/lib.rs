@@ -779,20 +779,20 @@ async fn setup_tunnel_controller(config: &TunnelConfig, verbose: bool) -> anyhow
 
     tracing::info!("Starting tailscaled...");
 
-    // Start tailscaled in background (if not already running). The SAME `verbose` flag
-    // that gates sandd's own logging also gates tailscaled's: when off, mute its routine
-    // chatter (magicsock/netmap/health lines) with --verbose=-1 and send its stdout/stderr
-    // to null, so it doesn't flood a `kubectl exec` REPL. Fatal startup failures still
-    // surface via the `tailscale up` result below.
+    // Start tailscaled in the background. The SAME `verbose` flag that gates sandd's own
+    // logging also gates tailscaled's routine chatter: when off, we pass --verbose=-1 to
+    // silence its per-packet magicsock/netmap/health lines and discard its STDOUT, so it
+    // doesn't flood a `kubectl exec` REPL. STDERR is deliberately KEPT: --verbose=-1
+    // already mutes the routine noise there, but a fatal startup failure (bad flag,
+    // permission denied, or another tailscaled holding the state lock) is reported on
+    // stderr and would otherwise be lost — `tailscale up` below only says it can't reach
+    // the daemon, never WHY it exited. Keeping stderr makes those failures diagnosable.
     let mut tailscaled = Command::new("tailscaled");
     tailscaled
         .arg("--tun=userspace-networking")
         .arg("--state=/var/lib/tailscale/tailscaled.state");
     if !verbose {
-        tailscaled
-            .arg("--verbose=-1")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        tailscaled.arg("--verbose=-1").stdout(Stdio::null());
     }
     let _tailscaled = tailscaled.spawn().context("Failed to start tailscaled")?;
 

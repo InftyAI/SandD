@@ -196,9 +196,11 @@ async fn main() -> Result<()> {
                 info!("Connection closed, reconnecting");
                 stale_netmap = false;
             }
-            // A dial/handshake error means we never reached the controller — the
-            // likely cause is a stale netmap pointing at the controller's old IP, so
-            // force a full refresh before the next attempt.
+            // connect_and_serve only returns Err when the connection was never
+            // ESTABLISHED (request build, SOCKS dial, or WebSocket handshake failed) —
+            // post-handshake serve() errors are folded into Disconnected above. So we
+            // never reached the controller; the likely cause is a stale netmap pointing
+            // at its old IP, so force a full refresh before the next attempt.
             Err(e) => {
                 error!("Connection error: {}", e);
                 stale_netmap = true;
@@ -265,7 +267,9 @@ async fn connect_and_serve(
             .await
             .context("tunnel: WebSocket handshake over SOCKS5 failed")?;
         log_negotiated_protocol(&response);
-        return serve(ws_stream, daemon_id, heartbeat_interval, labels, shutdown_signal()).await;
+        return Ok(session_outcome(
+            serve(ws_stream, daemon_id, heartbeat_interval, labels, shutdown_signal()).await,
+        ));
     }
 
     let (ws_stream, response) = match tokio_tungstenite::connect_async(request).await {
@@ -276,7 +280,25 @@ async fn connect_and_serve(
         }
     };
     log_negotiated_protocol(&response);
-    serve(ws_stream, daemon_id, heartbeat_interval, labels, shutdown_signal()).await
+    Ok(session_outcome(
+        serve(ws_stream, daemon_id, heartbeat_interval, labels, shutdown_signal()).await,
+    ))
+}
+
+/// Collapse a serve() result into a ServeOutcome for the POST-handshake path. Once the
+/// WebSocket is up the mesh path is proven good, so a serve() error is a post-connect
+/// failure (registration send, serde, socket reset mid-session) — NOT an unreachable
+/// controller. Map it to Disconnected (logged) so main() reconnects WITHOUT forcing a
+/// netmap refresh; that keeps an Err from connect_and_serve meaning only "failed to
+/// establish the connection", which is exactly the condition stale_netmap keys off of.
+fn session_outcome(result: Result<ServeOutcome>) -> ServeOutcome {
+    match result {
+        Ok(outcome) => outcome,
+        Err(e) => {
+            error!("Session error after connect: {}; reconnecting", e);
+            ServeOutcome::Disconnected
+        }
+    }
 }
 
 /// Log the WebSocket subprotocol the server negotiated (shared by both transports).
@@ -844,19 +866,31 @@ async fn setup_tunnel(args: &Args, force_refresh: bool) -> Result<()> {
     // reaped daemon looped forever dialing the controller through a dead tunnel and
     // never re-registered.
     //
-    // Readiness is probed by connecting to the SOCKS5 port, NOT by `tailscale status`.
-    // connect_and_serve dials the controller THROUGH that proxy, so the listener being
-    // up is the exact invariant that matters. A bare `tailscale status` check would
-    // pass for ANY running tailscaled — including a system/sidecar one started without
-    // --socks5-server — and we'd then skip our spawn, leaving the proxy absent so every
-    // connect fails and the loop never recovers. Probing the port instead means: proxy
-    // reachable => our tunnel is truly up, skip; not reachable => (re)start our own
-    // tailscaled with the SOCKS listener, even if some other tailscaled exists.
+    // Readiness needs BOTH checks — each covers the other's blind spot:
+    //   1. The SOCKS5 port is reachable. connect_and_serve dials the controller THROUGH
+    //      this proxy, so the listener being up is the exact invariant that matters. But
+    //      a raw connect is a false positive if ANY process squats on 127.0.0.1:1055 —
+    //      we'd skip our spawn and then `tailscale up` fails/retries forever against a
+    //      proxy that isn't tailscaled's.
+    //   2. `tailscale status` succeeds. This confirms a functioning tailscaled is
+    //      actually running (not a squatter, not a half-dead daemon). Alone it is also
+    //      insufficient: it passes for ANY tailscaled — including a system/sidecar one
+    //      started WITHOUT --socks5-server — so the proxy could still be absent.
+    // Together they mean: proxy reachable AND owned by a live tailscaled => our tunnel is
+    // truly up, skip. Otherwise (re)start our own tailscaled with the SOCKS listener; if
+    // a foreign process holds the port, our spawn can't bind it and the poll below fails
+    // with a clear error rather than looping silently.
     let socks_reachable = tokio::net::TcpStream::connect(TUNNEL_SOCKS_PROXY)
         .await
         .is_ok();
+    let tailscaled_healthy = socks_reachable
+        && Command::new("tailscale")
+            .arg("status")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
 
-    if socks_reachable {
+    if tailscaled_healthy {
         info!("tailscaled SOCKS5 proxy already listening on {}; re-joining mesh", TUNNEL_SOCKS_PROXY);
     } else {
         info!("Starting tailscaled...");
@@ -880,9 +914,20 @@ async fn setup_tunnel(args: &Args, force_refresh: bool) -> Result<()> {
         // fail with a clear, actionable error instead of falling through to an opaque
         // "failed to reach controller through SOCKS5 proxy" on every connect. main()'s
         // loop then retries setup_tunnel after its backoff, so a slow start recovers.
+        // Ready only when the port is reachable AND `tailscale status` succeeds — the
+        // same two-part check as above. A bare port connect would accept a foreign
+        // process squatting on 1055; requiring status confirms it is OUR tailscaled that
+        // came up, so we never fall through to a `tailscale up` that can't work.
         let mut ready = false;
         for _ in 0..20 {
-            if tokio::net::TcpStream::connect(TUNNEL_SOCKS_PROXY).await.is_ok() {
+            let socks_up = tokio::net::TcpStream::connect(TUNNEL_SOCKS_PROXY).await.is_ok();
+            if socks_up
+                && Command::new("tailscale")
+                    .arg("status")
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false)
+            {
                 ready = true;
                 break;
             }
@@ -891,8 +936,8 @@ async fn setup_tunnel(args: &Args, force_refresh: bool) -> Result<()> {
         if !ready {
             return Err(anyhow::anyhow!(
                 "tailscaled SOCKS5 proxy never came up on {} after starting tailscaled \
-                 (is another tailscaled holding /var/lib/tailscale/tailscaled.state, or is \
-                 the port in use?)",
+                 (is another process holding the port, or another tailscaled holding \
+                 /var/lib/tailscale/tailscaled.state?)",
                 TUNNEL_SOCKS_PROXY
             ));
         }
