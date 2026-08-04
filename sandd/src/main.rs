@@ -914,20 +914,18 @@ async fn setup_tunnel(args: &Args, force_refresh: bool) -> Result<()> {
         // fail with a clear, actionable error instead of falling through to an opaque
         // "failed to reach controller through SOCKS5 proxy" on every connect. main()'s
         // loop then retries setup_tunnel after its backoff, so a slow start recovers.
-        // Ready only when the port is reachable AND `tailscale status` succeeds — the
-        // same two-part check as above. A bare port connect would accept a foreign
-        // process squatting on 1055; requiring status confirms it is OUR tailscaled that
-        // came up, so we never fall through to a `tailscale up` that can't work.
+        //
+        // Probe the PORT only here — NOT `tailscale status`. We have just spawned
+        // tailscaled but have not yet run `tailscale up` (that happens below), so the
+        // node is still logged out and `tailscale status` would exit non-zero: gating on
+        // it would be circular (status needs `up`, `up` needs us past this poll) and wedge
+        // the daemon forever at "Active daemons: 0". The proxy being served IS the
+        // readiness signal for a freshly-started tailscaled; the `tailscale up` that
+        // follows surfaces any real join failure. (The skip-gate above additionally
+        // checks status, which is valid there because a prior iteration already ran up.)
         let mut ready = false;
         for _ in 0..20 {
-            let socks_up = tokio::net::TcpStream::connect(TUNNEL_SOCKS_PROXY).await.is_ok();
-            if socks_up
-                && Command::new("tailscale")
-                    .arg("status")
-                    .output()
-                    .map(|o| o.status.success())
-                    .unwrap_or(false)
-            {
+            if tokio::net::TcpStream::connect(TUNNEL_SOCKS_PROXY).await.is_ok() {
                 ready = true;
                 break;
             }
@@ -936,8 +934,8 @@ async fn setup_tunnel(args: &Args, force_refresh: bool) -> Result<()> {
         if !ready {
             return Err(anyhow::anyhow!(
                 "tailscaled SOCKS5 proxy never came up on {} after starting tailscaled \
-                 (is another process holding the port, or another tailscaled holding \
-                 /var/lib/tailscale/tailscaled.state?)",
+                 (is another tailscaled holding /var/lib/tailscale/tailscaled.state, or is \
+                 the port in use?)",
                 TUNNEL_SOCKS_PROXY
             ));
         }
