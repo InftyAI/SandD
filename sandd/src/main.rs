@@ -137,6 +137,11 @@ async fn main() -> Result<()> {
         info!("Tunnel mode enabled");
     }
 
+    // Set when the previous attempt could not REACH the controller (dial through the
+    // SOCKS5 proxy failed), as opposed to a clean mid-session drop. It signals the
+    // next setup_tunnel to force a full netmap refresh — see below.
+    let mut stale_netmap = false;
+
     // Main connection loop with reconnection.
     loop {
         // In tunnel mode, (re)establish the mesh on EVERY iteration before dialing
@@ -147,8 +152,18 @@ async fn main() -> Result<()> {
         // (container stays Running, node stays gone from headscale). On failure, log
         // and fall through to the backoff sleep rather than crash — a transient mesh
         // failure must not kill a long-lived daemon.
+        //
+        // stale_netmap forces a FULL netmap refresh (tailscale down/up) this pass. It
+        // is set only after a dial FAILURE below: the controller is ephemeral and gets
+        // a NEW mesh IP on every restart, and headscale (v0.23) does not reliably push
+        // that new peer to already-connected daemons. So the daemon keeps resolving the
+        // controller's MagicDNS name to the DEAD old IP and every dial fails — for as
+        // long as it takes some unrelated event to jog headscale into re-sending the
+        // map (observed: ~11 min). A plain `tailscale up` while already connected is a
+        // no-op that does NOT re-fetch the map; bouncing the control session does, so
+        // the next dial resolves to the controller's current IP and connects in seconds.
         if args.tunnel {
-            if let Err(e) = setup_tunnel(&args).await {
+            if let Err(e) = setup_tunnel(&args, stale_netmap).await {
                 error!("Failed to (re)establish tunnel: {}; retrying", e);
                 warn!("Reconnecting in {} seconds...", args.reconnect_interval);
                 tokio::time::sleep(Duration::from_secs(args.reconnect_interval)).await;
@@ -175,9 +190,19 @@ async fn main() -> Result<()> {
             // The specific reason (server Close, socket error, stream end,
             // registration failure) is already logged at the break site inside
             // serve(); avoid claiming "gracefully" here since Disconnected also
-            // covers error paths. main() only needs to know: reconnect.
-            Ok(ServeOutcome::Disconnected) => info!("Connection closed, reconnecting"),
-            Err(e) => error!("Connection error: {}", e),
+            // covers error paths. main() only needs to know: reconnect. A clean drop
+            // means the map WAS fine (we had a live session), so don't force a refresh.
+            Ok(ServeOutcome::Disconnected) => {
+                info!("Connection closed, reconnecting");
+                stale_netmap = false;
+            }
+            // A dial/handshake error means we never reached the controller — the
+            // likely cause is a stale netmap pointing at the controller's old IP, so
+            // force a full refresh before the next attempt.
+            Err(e) => {
+                error!("Connection error: {}", e);
+                stale_netmap = true;
+            }
         }
 
         warn!("Reconnecting in {} seconds...", args.reconnect_interval);
@@ -784,7 +809,7 @@ where
     Ok(())
 }
 
-async fn setup_tunnel(args: &Args) -> Result<()> {
+async fn setup_tunnel(args: &Args, force_refresh: bool) -> Result<()> {
     use std::process::Command;
 
     // Validate required arguments
@@ -818,14 +843,21 @@ async fn setup_tunnel(args: &Args) -> Result<()> {
     // node gone from headscale": before, tailscale up ran once at startup only, so a
     // reaped daemon looped forever dialing the controller through a dead tunnel and
     // never re-registered.
-    let tailscaled_running = Command::new("tailscale")
-        .arg("status")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+    //
+    // Readiness is probed by connecting to the SOCKS5 port, NOT by `tailscale status`.
+    // connect_and_serve dials the controller THROUGH that proxy, so the listener being
+    // up is the exact invariant that matters. A bare `tailscale status` check would
+    // pass for ANY running tailscaled — including a system/sidecar one started without
+    // --socks5-server — and we'd then skip our spawn, leaving the proxy absent so every
+    // connect fails and the loop never recovers. Probing the port instead means: proxy
+    // reachable => our tunnel is truly up, skip; not reachable => (re)start our own
+    // tailscaled with the SOCKS listener, even if some other tailscaled exists.
+    let socks_reachable = tokio::net::TcpStream::connect(TUNNEL_SOCKS_PROXY)
+        .await
+        .is_ok();
 
-    if tailscaled_running {
-        info!("tailscaled already running; re-joining mesh");
+    if socks_reachable {
+        info!("tailscaled SOCKS5 proxy already listening on {}; re-joining mesh", TUNNEL_SOCKS_PROXY);
     } else {
         info!("Starting tailscaled...");
         // --socks5-server is what makes tunnel mode actually work: with
@@ -842,8 +874,40 @@ async fn setup_tunnel(args: &Args) -> Result<()> {
             .spawn()
             .context("Failed to start tailscaled")?;
 
-        // Give tailscaled time to start
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        // Wait for the SOCKS5 listener to actually come up rather than sleeping a
+        // fixed interval and hoping. If it never binds — e.g. a foreign tailscaled
+        // already holds the state lock so our spawn exited, or the port is taken —
+        // fail with a clear, actionable error instead of falling through to an opaque
+        // "failed to reach controller through SOCKS5 proxy" on every connect. main()'s
+        // loop then retries setup_tunnel after its backoff, so a slow start recovers.
+        let mut ready = false;
+        for _ in 0..20 {
+            if tokio::net::TcpStream::connect(TUNNEL_SOCKS_PROXY).await.is_ok() {
+                ready = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        if !ready {
+            return Err(anyhow::anyhow!(
+                "tailscaled SOCKS5 proxy never came up on {} after starting tailscaled \
+                 (is another tailscaled holding /var/lib/tailscale/tailscaled.state, or is \
+                 the port in use?)",
+                TUNNEL_SOCKS_PROXY
+            ));
+        }
+    }
+
+    // Force a full netmap refresh when the last attempt couldn't reach the controller
+    // (see the stale_netmap comment in main). `tailscale up` on an already-connected
+    // node is a no-op that reuses the CACHED netmap — so it keeps resolving the
+    // controller's MagicDNS name to its old, dead IP. Bringing the node DOWN first
+    // drops the control session; the `tailscale up` that follows re-polls headscale and
+    // pulls a fresh map that includes the controller's current IP. Best-effort: a
+    // failed `down` (e.g. already down) must not abort the re-join below.
+    if force_refresh {
+        info!("Forcing netmap refresh (tailscale down) after unreachable controller");
+        let _ = Command::new("tailscale").arg("down").output();
     }
 
     info!("Joining mesh network...");
