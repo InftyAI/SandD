@@ -1,4 +1,3 @@
-use sandd_protocol::Message;
 use crate::registry::{DaemonConnection, DaemonRegistry};
 use anyhow::{Context, Result};
 use axum::{
@@ -12,6 +11,7 @@ use axum::{
     Router,
 };
 use futures_util::{SinkExt, StreamExt};
+use sandd_protocol::Message;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -175,10 +175,10 @@ async fn handle_websocket(ws: WebSocket, registry: Arc<DaemonRegistry>) {
 /// `Register` again, rather than reconstructing the entry server-side from a copy the
 /// server would have to hold for every connection.
 ///
-/// Daemons predating `HeartbeatAck` ignore it (their catch-all arm) and recover only
-/// when the connection eventually drops. They cannot be upgraded in place — the binary
-/// is fetched from /releases/latest/ at instance boot — so this takes full effect on
-/// instances provisioned after the daemon ships.
+/// Daemons predating `HeartbeatAck` effectively ignore it (it fails to deserialize) and
+/// recover only when the connection eventually drops. They cannot be upgraded in place —
+/// the binary is fetched from /releases/latest/ at instance boot — so this takes full effect
+/// on instances provisioned after the daemon ships.
 ///
 /// Split out of handle_daemon_message so it is unit-testable: the parent needs a
 /// SplitSink<WebSocket, _> that cannot be constructed without a real socket.
@@ -443,7 +443,10 @@ mod tests {
 
         assert!(handle_heartbeat("daemon-1", &registry));
         assert_eq!(registry.count(), 1);
-        assert_eq!(registry.get("daemon-1").unwrap().seconds_since_heartbeat(), 0);
+        assert_eq!(
+            registry.get("daemon-1").unwrap().seconds_since_heartbeat(),
+            0
+        );
     }
 
     // The daemon's re-registration must land on the LIVE connection. Re-registering is
@@ -476,8 +479,14 @@ mod tests {
             .unwrap()
             .send_message(Message::Heartbeat)
             .unwrap();
-        assert!(new_rx.try_recv().is_ok(), "must route to the re-registered connection");
-        assert!(stale_rx.try_recv().is_err(), "must not route to the old connection");
+        assert!(
+            new_rx.try_recv().is_ok(),
+            "must route to the re-registered connection"
+        );
+        assert!(
+            stale_rx.try_recv().is_err(),
+            "must not route to the old connection"
+        );
     }
 
     // A LIVE daemon evicted by a DYING one must recover. This is the stale-remove race:

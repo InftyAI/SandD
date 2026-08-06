@@ -83,15 +83,29 @@ def tunnel_stack():
         capture_output=True,
         text=True,
     )
-    key = subprocess.run(
-        [
-            "docker", "exec", hs, "headscale", "preauthkeys", "create",
-            "--user", "sandd", "--reusable", "--expiration", "1h",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip().splitlines()[-1].strip()
+    key = (
+        subprocess.run(
+            [
+                "docker",
+                "exec",
+                hs,
+                "headscale",
+                "preauthkeys",
+                "create",
+                "--user",
+                "sandd",
+                "--reusable",
+                "--expiration",
+                "1h",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        .stdout.strip()
+        .splitlines()[-1]
+        .strip()
+    )
     assert key and " " not in key, f"unexpected preauthkey output: {key!r}"
 
     # 3. controller + daemon, with the freshly-minted key in their env. Compose
