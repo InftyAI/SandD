@@ -346,7 +346,7 @@ where
 
     // Send registration. Clone: `metadata` is needed again if the controller later
     // reports us as unregistered and we re-register on this same socket (see the
-    // RegisterAck arm in the message loop below).
+    // HeartbeatAck arm in the message loop below).
     let register_msg = Message::Register {
         daemon_id: daemon_id.to_string(),
         metadata: metadata.clone(),
