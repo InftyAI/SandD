@@ -10,7 +10,7 @@ use futures_util::{SinkExt, StreamExt};
 use sandd_protocol::Message;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use sysinfo::System;
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
 use tracing::{debug, error, info, warn};
@@ -344,10 +344,12 @@ where
         labels,
     };
 
-    // Send registration
+    // Send registration. Clone: `metadata` is needed again if the controller later
+    // reports us as unregistered and we re-register on this same socket (see the
+    // RegisterAck arm in the message loop below).
     let register_msg = Message::Register {
         daemon_id: daemon_id.to_string(),
-        metadata,
+        metadata: metadata.clone(),
     };
     let register_json = serde_json::to_string(&register_msg)?;
     ws_tx.send(WsMessage::Text(register_json)).await?;
@@ -426,6 +428,23 @@ where
     // without being moved (it may be `!Unpin`).
     tokio::pin!(shutdown);
     tokio::pin!(dead_rx);
+
+    // Last time the controller acked a heartbeat. A successful heartbeat WRITE only
+    // proves bytes reached a socket buffer, so a controller that is connected but no
+    // longer processing (wedged event loop, half-open path over DERP) looks perfectly
+    // healthy to `dead_rx`. An ack, by contrast, is proof of processing — so if acks
+    // stop arriving while writes keep succeeding, the connection is useless and we
+    // reconnect. Seeded at connection time: registration just completed, so the
+    // controller was responsive a moment ago.
+    let mut last_ack = Instant::now();
+    // Allow several missed acks before giving up, for the same reason the controller's
+    // own reaper allows ~6: mesh churn (DERP peer reconfig, netmap propagation) can
+    // stall traffic for tens of seconds without anything being broken. Tie it to the
+    // heartbeat interval so the two stay in step if that is retuned.
+    let ack_timeout = Duration::from_secs(heartbeat_interval.saturating_mul(6).max(30));
+    // Drives the deadline check below. Independent of the heartbeat interval: it only
+    // decides how promptly a breach is noticed, not how long the deadline is.
+    let mut ack_check = tokio::time::interval(Duration::from_secs(1));
     let outcome = loop {
         tokio::select! {
             // Poll shutdown FIRST. With `biased`, tokio checks branches top to
@@ -455,6 +474,27 @@ where
                 break ServeOutcome::Disconnected;
             }
 
+            // Writes keep succeeding but the controller stopped acking => it is
+            // connected yet not processing (wedged, or a half-open path that only
+            // fails on read). Reconnect rather than sit on a socket that cannot
+            // deliver work.
+            //
+            // Ticks UNCONDITIONALLY and tests the deadline in the body, rather than
+            // gating the branch on `if last_ack.elapsed() >= ack_timeout`: a disabled
+            // branch is re-evaluated only when some OTHER branch wakes the loop, and a
+            // silent controller means ws_rx.next() blocks forever — so the guard would
+            // never be re-checked in exactly the case it exists to catch.
+            _ = ack_check.tick() => {
+                let silent_for = last_ack.elapsed();
+                if silent_for >= ack_timeout {
+                    warn!(
+                        "No heartbeat ack for {}s (controller connected but unresponsive); reconnecting",
+                        silent_for.as_secs()
+                    );
+                    break ServeOutcome::Disconnected;
+                }
+            }
+
             msg = ws_rx.next() => {
                 let msg = match msg {
                     Some(Ok(WsMessage::Text(text))) => text,
@@ -480,6 +520,48 @@ where
                         continue;
                     }
                 };
+
+                // Heartbeat acks are handled here, not in handle_message: a failure means
+                // re-registering, which needs `metadata` from this scope, and every ack
+                // refreshes the liveness deadline tracked by this loop.
+                if let Message::HeartbeatAck { success, ref reason } = message {
+                    // Any ack proves the controller is PROCESSING, not just accepting
+                    // bytes into a socket buffer — that is what makes the ack-timeout
+                    // check below able to spot a hung-but-connected controller.
+                    last_ack = Instant::now();
+
+                    if !success {
+                        // The controller reaped us while this socket stayed healthy (mesh
+                        // churn can stall heartbeats past its threshold without breaking
+                        // TCP). We are invisible to it — no exec, no logs — until we
+                        // register again, and we cannot detect that any other way: our
+                        // heartbeat writes keep succeeding, so the dead-connection signal
+                        // never fires. Only we hold our metadata, so re-sending Register
+                        // is what restores the entry faithfully.
+                        //
+                        // Re-register IN PLACE rather than reconnecting: the socket is
+                        // demonstrably fine (this ack just arrived on it), so a reconnect
+                        // would pay the mesh dial plus the backoff sleep to rebuild a
+                        // connection we already have.
+                        warn!("Controller rejected heartbeat ({}); re-registering", reason);
+                        let register = Message::Register {
+                            daemon_id: daemon_id.to_string(),
+                            metadata: metadata.clone(),
+                        };
+                        match serde_json::to_string(&register) {
+                            Ok(json) => {
+                                let mut tx = ws_tx_clone.lock().await;
+                                if tx.send(WsMessage::Text(json)).await.is_err() {
+                                    // The socket died as we replied; reconnect instead.
+                                    error!("Failed to re-register; reconnecting");
+                                    break ServeOutcome::Disconnected;
+                                }
+                            }
+                            Err(e) => error!("Failed to serialize re-registration: {}", e),
+                        }
+                    }
+                    continue;
+                }
 
                 // Handle message inline
                 if let Err(e) = handle_message(
@@ -1124,6 +1206,202 @@ mod shutdown_tests {
         };
 
         let (outcome, ()) = tokio::join!(daemon, controller);
+        assert_eq!(outcome.unwrap(), ServeOutcome::Disconnected);
+    }
+
+    /// Read frames until one that is not a `Heartbeat` arrives, or the wait times
+    /// out. The daemon's heartbeat interval fires immediately on its first tick, so
+    /// beats are routinely interleaved with whatever a test is actually looking for;
+    /// `None` means the daemon sent nothing but heartbeats.
+    async fn next_non_heartbeat(server: &mut WebSocketStream<TcpStream>) -> Option<Message> {
+        loop {
+            let frame = tokio::time::timeout(Duration::from_millis(500), server.next())
+                .await
+                .ok()??
+                .ok()?;
+            let text = match frame {
+                WsMessage::Text(text) => text,
+                _ => continue,
+            };
+            match serde_json::from_str::<Message>(&text) {
+                Ok(Message::Heartbeat) => continue,
+                Ok(msg) => return Some(msg),
+                Err(_) => continue,
+            }
+        }
+    }
+
+    /// A rejected heartbeat must make the daemon re-send `Register` ON THE SAME
+    /// socket, and keep serving. The controller reaps daemons whose heartbeats
+    /// stall past its threshold, which mesh churn can cause without breaking TCP
+    /// — so the daemon can be evicted while its socket is healthy. Re-registering
+    /// is the only recovery, because only the daemon holds its metadata.
+    #[tokio::test]
+    async fn rejected_heartbeat_reregisters_in_place() {
+        let (client, mut server) = ws_pair().await;
+
+        let shutdown = std::future::pending::<()>();
+        // 3600s heartbeat interval: the daemon's own heartbeat never fires in-test,
+        // so the only Register after the handshake is the re-registration.
+        let daemon = serve(client, "test-daemon", 3600, HashMap::new(), shutdown);
+
+        let controller = async {
+            ack_registration(&mut server).await;
+
+            let nack = Message::HeartbeatAck {
+                success: false,
+                reason: "daemon is not registered".to_string(),
+            };
+            server
+                .send(WsMessage::Text(serde_json::to_string(&nack).unwrap()))
+                .await
+                .unwrap();
+
+            // The re-registration must arrive on this same connection, carrying the
+            // daemon's own id and metadata rather than anything server-side. Skip
+            // past heartbeats: the daemon's interval fires immediately on the first
+            // tick, so a beat can be in flight ahead of the Register.
+            let reregistered = next_non_heartbeat(&mut server).await.is_some_and(|msg| {
+                matches!(
+                    &msg,
+                    Message::Register { daemon_id, metadata }
+                        if daemon_id == "test-daemon" && !metadata.hostname.is_empty()
+                )
+            });
+
+            // End the session so `serve` returns and the join below completes.
+            server.close(None).await.unwrap();
+            reregistered
+        };
+
+        let (outcome, reregistered) = tokio::join!(daemon, controller);
+        assert!(reregistered, "daemon did not re-register after a rejected heartbeat");
+        // A rejected heartbeat must NOT tear down a demonstrably working socket:
+        // serve stays in its loop and only ends here because the controller closed.
+        assert_eq!(outcome.unwrap(), ServeOutcome::Disconnected);
+    }
+
+    /// End-to-end recovery over a real socket: the daemon must come back from an
+    /// eviction and STAY usable — accept work afterwards and keep heartbeating —
+    /// rather than merely emitting one Register and wedging.
+    ///
+    /// This is the daemon half of the server's
+    /// `daemon_evicted_by_a_dying_connection_recovers_on_its_next_heartbeat`. Together
+    /// they cover the whole loop: the controller rejects a heartbeat from a daemon it no
+    /// longer holds, and the daemon turns that rejection back into a working session on
+    /// the connection it already has. Two rejections in a row are exercised because an
+    /// eviction can recur (a flapping mesh path, a second stale-cleanup) and recovery
+    /// must not be one-shot.
+    #[tokio::test]
+    async fn daemon_recovers_and_keeps_serving_after_eviction() {
+        let (client, mut server) = ws_pair().await;
+
+        let shutdown = std::future::pending::<()>();
+        let daemon = serve(client, "test-daemon", 3600, HashMap::new(), shutdown);
+
+        let controller = async {
+            ack_registration(&mut server).await;
+
+            let nack = || {
+                serde_json::to_string(&Message::HeartbeatAck {
+                    success: false,
+                    reason: "daemon is not registered".to_string(),
+                })
+                .unwrap()
+            };
+
+            // Evicted twice, with a recovery in between: recovery must be repeatable,
+            // not a one-shot latch.
+            let mut registers = 0;
+            for _ in 0..2 {
+                server.send(WsMessage::Text(nack())).await.unwrap();
+                if matches!(
+                    next_non_heartbeat(&mut server).await,
+                    Some(Message::Register { .. })
+                ) {
+                    registers += 1;
+                }
+            }
+
+            // Recovered daemons must still do WORK, not just re-register. Dispatch a
+            // command and require its output back on this same socket — proof the
+            // session is functional end to end, not merely present.
+            let exec = Message::ExecuteCommand {
+                request_id: "recovery-1".to_string(),
+                command: "echo recovered".to_string(),
+                timeout_secs: 30,
+                env: HashMap::new(),
+                cwd: None,
+            };
+            server
+                .send(WsMessage::Text(serde_json::to_string(&exec).unwrap()))
+                .await
+                .unwrap();
+
+            let mut output = None;
+            // Skip heartbeats and any trailing Register while waiting for the result.
+            for _ in 0..5 {
+                match next_non_heartbeat(&mut server).await {
+                    Some(Message::CommandOutput {
+                        request_id, stdout, ..
+                    }) => {
+                        output = Some((request_id, stdout));
+                        break;
+                    }
+                    Some(_) => continue,
+                    None => break,
+                }
+            }
+
+            server.close(None).await.unwrap();
+            (registers, output)
+        };
+
+        let (outcome, (registers, output)) = tokio::join!(daemon, controller);
+        assert_eq!(registers, 2, "daemon must re-register after EVERY eviction");
+        let (request_id, stdout) = output.expect("recovered daemon never returned command output");
+        assert_eq!(request_id, "recovery-1");
+        assert_eq!(stdout.trim(), "recovered");
+        // The session survived both evictions: it ended only because the controller
+        // closed, never because a rejection tore down a healthy socket.
+        assert_eq!(outcome.unwrap(), ServeOutcome::Disconnected);
+    }
+
+    /// A successful heartbeat ack is not an error path and must be consumed
+    /// quietly: no re-registration, no disconnect.
+    #[tokio::test]
+    async fn successful_heartbeat_ack_is_ignored() {
+        let (client, mut server) = ws_pair().await;
+
+        let shutdown = std::future::pending::<()>();
+        let daemon = serve(client, "test-daemon", 3600, HashMap::new(), shutdown);
+
+        let controller = async {
+            ack_registration(&mut server).await;
+
+            let ack = Message::HeartbeatAck {
+                success: true,
+                reason: String::new(),
+            };
+            server
+                .send(WsMessage::Text(serde_json::to_string(&ack).unwrap()))
+                .await
+                .unwrap();
+
+            // Give the daemon a chance to (wrongly) respond, then close. Only
+            // heartbeats should arrive: a success ack refreshes an internal deadline
+            // and nothing more — in particular it must not trigger a re-registration.
+            let replied = next_non_heartbeat(&mut server).await;
+            server.close(None).await.unwrap();
+            replied
+        };
+
+        let (outcome, replied) = tokio::join!(daemon, controller);
+        assert!(
+            replied.is_none(),
+            "daemon replied to a successful heartbeat ack: {:?}",
+            replied
+        );
         assert_eq!(outcome.unwrap(), ServeOutcome::Disconnected);
     }
 

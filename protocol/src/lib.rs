@@ -25,6 +25,27 @@ pub enum Message {
         message: String,
     },
     Heartbeat,
+    /// Server -> daemon: the outcome of a `Heartbeat`, mirroring `RegisterAck`.
+    ///
+    /// `success: false` means the daemon is NOT in the registry and must send `Register`
+    /// again on this same connection. That happens because the server reaps daemons
+    /// whose heartbeats stall past a threshold, which mesh churn can cause WITHOUT
+    /// breaking TCP — so a daemon can be evicted while its socket is still healthy.
+    /// `Register` is sent once per connection, and the daemon cannot detect the eviction
+    /// on its own: its heartbeat writes keep succeeding, so its dead-connection signal
+    /// never fires. Without this it stays invisible (no exec, no logs) until the socket
+    /// truly breaks, which its own heartbeats keep preventing.
+    ///
+    /// `success: true` is also sent, and is load-bearing: it is the daemon's only
+    /// application-level proof that the controller is still PROCESSING messages, not
+    /// merely accepting bytes into a socket buffer. The daemon reconnects when acks stop
+    /// arriving (see the ack-timeout check in sandd's serve loop).
+    ///
+    /// `reason` explains a failure and is empty on success.
+    HeartbeatAck {
+        success: bool,
+        reason: String,
+    },
     Pong,
     ExecuteCommand {
         request_id: String,
