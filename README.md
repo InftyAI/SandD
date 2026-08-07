@@ -159,6 +159,16 @@ server = Server(connect="tunnel", tunnel_config=config)
 # ✓ No public IPs required
 ```
 
+In a cluster, don't bake a key into your image — mint one per start from a key
+broker (`$SANDD_KEYBROKER_URL`) and take the headscale URL from
+`$SANDD_TUNNEL_SERVER`:
+
+```python
+from sandd import Server, tunnel_config_from_env
+
+server = Server(connect="tunnel", tunnel_config=tunnel_config_from_env())
+```
+
 See [Tunnel Mode Guide](./docs/proposals/TUNNEL.md) for setup instructions.
 
 ## Documentation

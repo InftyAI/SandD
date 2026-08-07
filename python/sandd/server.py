@@ -45,6 +45,11 @@ class Server:
         ... )
         >>> server = Server(connect="tunnel", tunnel_config=config)
         >>> result = server.exec("daemon-1", "hostname")
+
+        >>> # Production, key minted from the in-cluster broker: reads
+        >>> # $SANDD_TUNNEL_SERVER and $SANDD_KEYBROKER_URL, no key handling here
+        >>> from sandd import tunnel_config_from_env
+        >>> server = Server(connect="tunnel", tunnel_config=tunnel_config_from_env())
     """
 
     def __init__(
