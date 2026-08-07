@@ -42,6 +42,7 @@ Example (Async API - Not Yet Implemented):
 from .models import CommandResult, ServerStats, DaemonInfo
 from .server import Server
 from .async_server import AsyncServer
+from .keys import tunnel_config_from_env
 
 try:
     from ._core import Session, TunnelConfig
@@ -58,4 +59,5 @@ __all__ = [
     "ServerStats",
     "DaemonInfo",
     "TunnelConfig",
+    "tunnel_config_from_env",
 ]

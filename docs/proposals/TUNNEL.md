@@ -259,6 +259,26 @@ config = TunnelConfig(
 server = Server(connect="tunnel", tunnel_config=config)
 ```
 
+#### With a key broker
+
+A static `authkey` in your source is fine for a laptop, but in a cluster the key is
+minted per-controller by a key broker that holds the only headscale admin
+credentials (Nebula deploys one as `nebula-keybroker`). `tunnel_config_from_env`
+does that mint for you — it reads the headscale URL from `$SANDD_TUNNEL_SERVER`,
+POSTs `/keys?kind=controller` to `$SANDD_KEYBROKER_URL`, and returns a ready
+`TunnelConfig`, so no key is ever written into an image or a manifest:
+
+```python
+from sandd import Server, tunnel_config_from_env
+
+server = Server(connect="tunnel", tunnel_config=tunnel_config_from_env())
+```
+
+It retries the mint (3 attempts, 1s/2s backoff) because the broker often runs as a
+headscale sidecar whose socket may not be up when your controller starts. Pass
+`broker_url=`, `attempts=`, or `timeout=` to override, and `kind="daemon"` for a
+daemon-policy key.
+
 ### Docker Image
 
 Use the tunnel-enabled image. Build it yourself like this:
