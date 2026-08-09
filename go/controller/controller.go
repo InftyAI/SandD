@@ -58,9 +58,18 @@ limitations under the License.
 // it, and a closed handle returns ErrClosed rather than dereferencing freed memory. That
 // is the whole reason this file exists instead of callers using cgo directly.
 //
+// Nil'ing the pointer is NOT sufficient on its own. Exec and Session.Read park in C for
+// up to their timeout and must not hold the mutex while they do — otherwise one idle
+// terminal serializes every other caller — so they copy the handle and release the lock.
+// A concurrent Close would then free a handle a blocked call is still using, and on the
+// server that means dropping the tokio runtime the call is executing on. Both types
+// therefore count in-flight calls and Close WAITS for that count to drain before
+// freeing. Consequence for callers: Close can block for as long as the longest
+// outstanding timeout, and must not be called while holding a lock a reader needs.
+//
 // A Server must outlive every Session opened from it — a Session borrows the server's
-// tokio runtime handle. Server.Close blocks until all sessions are closed for exactly
-// that reason.
+// tokio runtime handle. Server.Close closes all sessions, and waits for each, for
+// exactly that reason.
 package controller
 
 /*
@@ -173,12 +182,39 @@ type Config struct {
 // Server is the embedded SandD controller.
 type Server struct {
 	// mu guards ptr and sessions. Held only around pointer bookkeeping, never across a
-	// blocking C call: sandd_session_read parks for up to its timeout, and holding mu
-	// there would serialize every reader in the process behind one idle terminal.
+	// blocking C call: sandd_exec parks for up to its timeout, and holding mu there
+	// would serialize every exec in the process behind one slow command.
 	mu       sync.Mutex
 	ptr      *C.SanddServer
 	sessions map[*Session]struct{}
+
+	// inflight counts calls that have copied ptr and are executing in C right now.
+	//
+	// Required because Exec releases mu for the duration of its call: nil'ing ptr is
+	// then NOT enough to make freeing safe, since a blocked call still holds its own
+	// copy. sandd_server_free drops the tokio Runtime that sandd_exec is parked on, so
+	// freeing underneath one is a use-after-free of a running executor, not merely a
+	// stale handle. Close waits for this to drain before freeing.
+	//
+	// Add is only ever called under mu with ptr non-nil, and Close nils ptr under mu
+	// before it Waits — so no Add can race a Wait.
+	inflight sync.WaitGroup
 }
+
+// acquire hands out the raw handle and registers an in-flight C call, or fails if the
+// server is closed. Every acquire MUST be paired with a release, hence the defer at each
+// call site: a leaked count wedges Close forever.
+func (s *Server) acquire() (*C.SanddServer, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ptr == nil {
+		return nil, ErrClosed
+	}
+	s.inflight.Add(1)
+	return s.ptr, nil
+}
+
+func (s *Server) release() { s.inflight.Done() }
 
 // Start launches the controller. The returned Server must be Closed to release the
 // listening socket and every daemon connection.
@@ -228,6 +264,12 @@ func Start(cfg Config) (*Server, error) {
 // Sessions are closed FIRST and their handles freed before the server's: a Session
 // borrows the server's tokio runtime, so freeing the server while one is open would
 // leave a dangling handle. Close is idempotent.
+//
+// BLOCKS until every in-flight call returns. ptr is nil'd first, so callers arriving
+// after this point get ErrClosed and cannot join the set being waited on; the ones
+// already parked in C are waited out because sandd_server_free drops the runtime they
+// are running on. An Exec with a long timeout therefore delays Close by up to that
+// timeout — bounded, and the alternative is freeing a live executor.
 func (s *Server) Close() error {
 	s.mu.Lock()
 	if s.ptr == nil {
@@ -243,10 +285,16 @@ func (s *Server) Close() error {
 	s.sessions = nil
 	s.mu.Unlock()
 
-	// Outside s.mu: Session.Close calls back into s.forget, which takes it.
+	// Outside s.mu: Session.Close calls back into s.forget, which takes it. Each of
+	// these waits out its own parked reader, so sessions are fully quiescent before the
+	// server's runtime goes away.
 	for _, sess := range open {
 		_ = sess.Close()
 	}
+
+	// After the sessions: a session's read parks on a handle to THIS runtime, so
+	// draining them first is what makes waiting here sufficient.
+	s.inflight.Wait()
 
 	C.sandd_server_free(ptr)
 	return nil
@@ -325,12 +373,13 @@ type ExecResult struct {
 // A timeout is NOT retryable. The command may have run — a timeout says only that no
 // answer arrived — so retrying risks executing it twice.
 func (s *Server) Exec(daemonID, command string, timeout time.Duration) (*ExecResult, error) {
-	s.mu.Lock()
-	ptr := s.ptr
-	s.mu.Unlock()
-	if ptr == nil {
-		return nil, ErrClosed
+	// acquire, not a bare pointer copy: this call outlives its hold on s.mu, so it must
+	// keep Close from freeing the handle underneath it.
+	ptr, err := s.acquire()
+	if err != nil {
+		return nil, err
 	}
+	defer s.release()
 
 	cid := C.CString(daemonID)
 	defer C.free(unsafe.Pointer(cid))
@@ -385,6 +434,47 @@ type Session struct {
 	// readMu serializes Read so two concurrent readers cannot share buf and interleave
 	// output. Separate from mu because Read must not hold mu while parked in C.
 	readMu sync.Mutex
+
+	// inflight counts reads parked in C, for the same reason as Server.inflight: Read
+	// releases mu before blocking, so nil'ing ptr does not stop a parked call from
+	// holding its own copy. Close waits for it before freeing the handle.
+	inflight sync.WaitGroup
+
+	// free releases the handle. nil means sandd_session_free — overridden only by
+	// stubSession, so a test can observe WHEN the free happens.
+	free func(*C.SanddSession)
+}
+
+// acquire hands out the raw handle and registers an in-flight C call, or fails if the
+// session is closed. Must be paired with a release.
+func (s *Session) acquire() (*C.SanddSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ptr == nil {
+		return nil, ErrClosed
+	}
+	s.inflight.Add(1)
+	return s.ptr, nil
+}
+
+func (s *Session) release() { s.inflight.Done() }
+
+// stubSession builds a Session whose handle is non-nil but never reaches the C free, so a
+// test can assert the ORDER of "wait for parked reads, then free".
+//
+// It lives in this file, not the test, for two reasons: a real Session needs a connected
+// daemon, which this dependency-free module cannot fake, and cgo is not permitted in
+// _test.go files at all — so anything naming *C.SanddSession has to be here. The handle is
+// a 1-byte malloc that is never dereferenced, freed by the stub itself.
+func stubSession(onFree func()) *Session {
+	return &Session{
+		ptr: (*C.SanddSession)(C.malloc(1)),
+		buf: make([]byte, ReadBufSize),
+		free: func(ptr *C.SanddSession) {
+			C.free(unsafe.Pointer(ptr))
+			onFree()
+		},
+	}
 }
 
 // OpenSession starts an interactive session on a daemon with the given terminal
@@ -462,12 +552,14 @@ func (s *Session) Read(p []byte, timeout time.Duration) (int, error) {
 	s.readMu.Lock()
 	defer s.readMu.Unlock()
 
-	s.mu.Lock()
-	ptr := s.ptr
-	s.mu.Unlock()
-	if ptr == nil {
-		return 0, ErrClosed
+	// acquire, not a bare pointer copy: this parks in C without holding s.mu, so it must
+	// keep Close from freeing the handle underneath it.
+	ptr, err := s.acquire()
+	if err != nil {
+		return 0, err
 	}
+	defer s.release()
+
 	if len(p) == 0 {
 		return 0, nil
 	}
@@ -513,9 +605,15 @@ func (s *Session) Resize(rows, cols uint16) error {
 
 // Close ends the session and frees its handle. Idempotent.
 //
-// A reader parked in Read at this moment returns ErrSessionClosed when its channel
-// drops, not ErrClosed: the handle is freed only after this returns, and the parked call
-// holds its own pointer copy.
+// BLOCKS until a reader parked in Read returns, which takes up to that read's timeout.
+// The parked call holds its own pointer copy, so nil'ing ptr does not protect it —
+// waiting is what makes the free safe. Such a reader sees whatever its own call returned
+// (ErrSessionClosed once the daemon drops the channel, or a timeout), and only a reader
+// arriving AFTER this gets ErrClosed.
+//
+// Callers must therefore not hold a lock that a reader needs, and a Read timeout doubles
+// as the worst-case Close latency — keep it short (Nebula's relay polls at 500ms and
+// loops, rather than parking for the session's whole lifetime) rather than unbounded.
 func (s *Session) Close() error {
 	s.mu.Lock()
 	if s.ptr == nil {
@@ -526,10 +624,18 @@ func (s *Session) Close() error {
 	s.ptr = nil
 	s.mu.Unlock()
 
+	// Before the free, and outside s.mu so a parked read can finish: it is holding a copy
+	// of ptr and running on the server's runtime.
+	s.inflight.Wait()
+
 	if s.srv != nil {
 		s.srv.forget(s)
 	}
-	C.sandd_session_free(ptr)
+	if s.free != nil {
+		s.free(ptr)
+	} else {
+		C.sandd_session_free(ptr)
+	}
 	return nil
 }
 
