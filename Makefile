@@ -116,8 +116,11 @@ docker-down:
 
 # --- Controller image (native Rust binary) -------------------------------------
 #
-# This is the image Nebula pulls: DefaultSandDControllerImage in Nebula's
-# internal/controller/pod_placement_controller.go is inftyai/sandd-controller:latest.
+# For running the controller STANDALONE. Nebula does not pull this: it links the
+# controller into its own manager through the C ABI (server/src/ffi.rs), so there is
+# no controller Deployment and no image to pin. Nothing publishes this image either
+# — the release workflow ships the daemon binaries only.
+#
 # Distroless + one static-ish binary, ~50MB against the ~4GB server-tunnel image
 # below, because it carries no interpreter, no rustup and no Tailscale client.
 #
