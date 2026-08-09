@@ -68,12 +68,36 @@ async fn shutdown_signal() {
 )]
 struct Args {
     /// Server URL (e.g., ws://localhost:8765/ws)
-    #[arg(short, long, env = "SERVER_URL")]
+    ///
+    /// SANDD_CONTROLLER_URL, not SERVER_URL: the daemon runs INSIDE the user's own
+    /// container image, so an unnamespaced name could collide with something the image
+    /// already sets. Nebula's bootstrap writes this exact name (see its
+    /// pkg/provider/aws/translate.go), and it reserves the SANDD_* names so a Pod's own
+    /// env cannot override them.
+    #[arg(short, long, env = "SANDD_CONTROLLER_URL")]
     server_url: String,
 
     /// Daemon ID (unique identifier)
-    #[arg(short, long, env = "DAEMON_ID")]
+    ///
+    /// IGNORED when a token is presented: the controller registers an authenticated
+    /// daemon under the `sub` it verified, whatever this says. So it matters only for a
+    /// controller running without auth, where the UUID fallback below also applies.
+    /// Nebula deliberately does not set it — the token is the identity.
+    #[arg(short, long, env = "SANDD_DAEMON_ID")]
     daemon_id: Option<String>,
+
+    /// Bearer token proving this daemon's identity to the controller (a short-lived
+    /// EdDSA JWT minted by the Nebula manager).
+    ///
+    /// Sent as `Authorization: Bearer <token>` on the WebSocket upgrade. Omit it for a
+    /// controller running without auth; a controller WITH auth answers 401.
+    ///
+    /// Env-only, deliberately no CLI flag: an argument is world-readable through
+    /// /proc/<pid>/cmdline, so any process on the instance — including the workload —
+    /// could `ps` the token out and impersonate this daemon. Nebula delivers it via a
+    /// 0600 root-owned env file for the same reason.
+    #[arg(long, env = "SANDD_TOKEN", hide = true)]
+    token: Option<String>,
 
     /// Reconnection interval in seconds
     #[arg(short, long, default_value = "5")]
@@ -177,6 +201,7 @@ async fn main() -> Result<()> {
             args.heartbeat_interval,
             labels.clone(),
             args.tunnel,
+            args.token.as_deref(),
         )
         .await
         {
@@ -218,6 +243,7 @@ async fn connect_and_serve(
     heartbeat_interval: u64,
     labels: HashMap<String, String>,
     tunnel: bool,
+    token: Option<&str>,
 ) -> Result<ServeOutcome> {
     info!("Connecting to server at {}", server_url);
 
@@ -228,6 +254,25 @@ async fn connect_and_serve(
         "Sec-WebSocket-Protocol",
         tokio_tungstenite::tungstenite::http::HeaderValue::from_static("sandd.v1"),
     );
+
+    // Authenticate at the UPGRADE, not after: a controller with auth on rejects the
+    // handshake with 401, so an unauthenticated daemon never gets a socket.
+    if let Some(token) = token {
+        let value = format!("Bearer {}", token);
+        // from_str rejects a value with control characters or non-ASCII; a mangled token
+        // (truncated env file, stray newline from a heredoc) must fail loudly here rather
+        // than being silently sent as a header the controller cannot parse.
+        let mut header =
+            tokio_tungstenite::tungstenite::http::HeaderValue::from_str(&value)
+                .context("SANDD_TOKEN is not a valid HTTP header value")?;
+        // The token is a bearer credential; keep it out of any Debug/log output of the
+        // request. tungstenite does not log headers today, but this makes it structural.
+        header.set_sensitive(true);
+        request
+            .headers_mut()
+            .insert(tokio_tungstenite::tungstenite::http::header::AUTHORIZATION, header);
+        debug!("presenting daemon token on the upgrade ({} bytes)", token.len());
+    }
 
     // Two transports, ONE serve loop (generic over the stream):
     //   - tunnel mode: the tailnet has no kernel route in userspace-networking, so
