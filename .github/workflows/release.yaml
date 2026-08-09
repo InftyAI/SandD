@@ -24,9 +24,13 @@ jobs:
           - runner: ubuntu-22.04
             target: x86_64-unknown-linux-musl
             asset: sandd-linux-amd64
+            package: sandd
+            bin: sandd
           - runner: ubuntu-22.04-arm
             target: aarch64-unknown-linux-musl
             asset: sandd-linux-arm64
+            package: sandd
+            bin: sandd
           # No Intel-mac (x86_64-apple-darwin) leg: GitHub is retiring the
           # macos-13 (Intel) runners, so that job queues indefinitely and — with
           # `release` gated on `needs: build` — blocks the whole release from
@@ -34,6 +38,25 @@ jobs:
           - runner: macos-14
             target: aarch64-apple-darwin
             asset: sandd-darwin-arm64
+            package: sandd
+            bin: sandd
+          # The CONTROLLER. Linux-only, unlike the daemon: the daemon runs on
+          # whatever a provider's instance is (including a dev Mac), while the
+          # controller only ever runs as a container in a cluster. A darwin leg
+          # would be an asset nothing consumes.
+          #
+          # No --features python — the pyo3 layer is optional and must stay out or
+          # the bin cannot link at all (see server/Cargo.toml).
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+            asset: sandd-controller-linux-amd64
+            package: sandbox-server
+            bin: sandd-controller
+          - runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-musl
+            asset: sandd-controller-linux-arm64
+            package: sandbox-server
+            bin: sandd-controller
     steps:
       - uses: actions/checkout@v4
 
@@ -47,11 +70,13 @@ jobs:
         if: endsWith(matrix.target, '-musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
-      - name: Build daemon
-        run: cargo build --package sandd --release --locked --target ${{ matrix.target }}
+      - name: Build ${{ matrix.bin }}
+        run: |
+          cargo build --package ${{ matrix.package }} --bin ${{ matrix.bin }} \
+            --release --locked --target ${{ matrix.target }}
 
       - name: Rename binary
-        run: mv target/${{ matrix.target }}/release/sandd ${{ matrix.asset }}
+        run: mv target/${{ matrix.target }}/release/${{ matrix.bin }} ${{ matrix.asset }}
 
       - name: Verify static linking
         if: endsWith(matrix.target, '-musl')
@@ -88,7 +113,10 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          sha256sum sandd-* > sandd-checksums.txt
+          # `sandd-*` covers the controller assets too (sandd-controller-linux-*),
+          # so both binaries are checksummed by the one file consumers already read.
+          # Excluded explicitly so a re-run cannot hash a previous checksums file.
+          sha256sum $(ls sandd-* | grep -v '^sandd-checksums.txt$') > sandd-checksums.txt
           cat sandd-checksums.txt
 
       - name: Create or update release
@@ -111,3 +139,70 @@ jobs:
               --generate-notes \
               artifacts/*
           fi
+
+  # The controller IMAGE — what Nebula actually pulls
+  # (DefaultSandDControllerImage = inftyai/sandd-controller:latest).
+  #
+  # A separate job, NOT `needs: build`: buildx compiles the binary itself inside the
+  # Dockerfile, so gating on the binary legs would serialize two independent builds
+  # and let a darwin-runner hiccup block the image. It also means a failed push does
+  # not hold back the GitHub release.
+  #
+  # REQUIRES SECRETS: DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (a Docker Hub access
+  # token with write access to inftyai/sandd-controller). Until they exist this job
+  # fails at the login step — deliberately loud rather than silently skipped, since a
+  # tagged release with no matching image is exactly the state that is confusing to
+  # debug later.
+  controller-image:
+    name: Publish controller image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # QEMU so the arm64 leg can be built on an amd64 runner. Slower than a native
+      # arm runner, but it keeps this a single job producing ONE manifest — a
+      # per-arch matrix would need a separate merge step to assemble it.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Both arches as ONE manifest, so a node pulling the tag gets its own
+      # architecture. Same platforms the Makefile's docker-push-controller uses.
+      #
+      # `latest` moves with every tag because that is what
+      # DefaultSandDControllerImage points at; the version tag is the immutable one to
+      # pin in production.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: hack/docker/Dockerfile.controller
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            inftyai/sandd-controller:${{ github.ref_name }}
+            inftyai/sandd-controller:latest
+          # Cache through the registry: each release starts from a cold runner, and a
+          # from-scratch dependency compile is the bulk of this job.
+          cache-from: type=registry,ref=inftyai/sandd-controller:buildcache
+          cache-to: type=registry,ref=inftyai/sandd-controller:buildcache,mode=max
+
+      # Proves the pushed manifest is actually multi-arch and that the binary in it
+      # runs. A single-arch push dies on the node with "exec format error", which is
+      # a far worse place to discover it.
+      - name: Verify the pushed manifest
+        run: |
+          docker buildx imagetools inspect inftyai/sandd-controller:${{ github.ref_name }}
+          for arch in amd64 arm64; do
+            echo "--- linux/$arch ---"
+            docker run --rm --platform "linux/$arch" \
+              inftyai/sandd-controller:${{ github.ref_name }} --version
+          done

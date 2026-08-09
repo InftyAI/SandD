@@ -9,7 +9,29 @@ homepage = "https://github.com/InftyAI/SandD"
 
 [lib]
 name = "sandbox_server"
-crate-type = ["cdylib", "rlib"]
+# staticlib alongside cdylib so a cgo host can link the FFI surface (src/ffi.rs) as an
+# ARCHIVE rather than a shared object. That is what lets Nebula's manager stay a single
+# self-contained binary on a `distroless/static` base — a .dylib/.so would have to be
+# shipped beside it and found at runtime. cdylib stays for pyo3 (CPython dlopens it) and
+# rlib for main.rs.
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+# The controller as a native binary — what Nebula runs (inftyai/sandd-controller).
+#
+# WHY A BINARY AND NOT THE PYTHON `Server(...)`: under Nebula the controller is
+# infrastructure, one Deployment per workload, and it does nothing a Python caller
+# drives — daemons dial IN and consumers reach it over HTTP. Launching it as
+# `python -c "from sandd import Server; ..."` would pay for a CPython interpreter,
+# the extension module and a second event-loop owner per workload, to host a
+# process that never executes a line of Python. At one controller per workload that
+# overhead multiplies. The binary is the same Rust server with the pyo3 layer left
+# out: ~10x smaller image, no interpreter, and a real argv/env config surface.
+#
+# The Python bindings are unaffected — they are behind the `python` feature and
+# maturin still builds them (see pyproject.toml [tool.maturin] features).
+[[bin]]
+name = "sandd-controller"
+path = "src/main.rs"
 
 [dependencies]
 sandd-protocol = { path = "../protocol" }
@@ -35,12 +57,44 @@ futures-util = "0.3"
 dashmap = "6.1"
 parking_lot = "0.12"
 
-# Python bindings
-pyo3 = { version = "0.20", features = ["extension-module", "anyhow"] }
-pythonize = "0.20"
+# Python bindings, OPTIONAL — pulled in only by the `python` feature (see
+# [features] below). The controller binary must not link CPython, and with
+# extension-module set it could not: that feature deliberately leaves the CPython
+# symbols undefined for an interpreter to supply at dlopen time, so any plain
+# `cargo build` of a bin target fails to link (loudly on macOS, subtly elsewhere).
+pyo3 = { version = "0.20", features = ["extension-module", "anyhow"], optional = true }
+pythonize = { version = "0.20", optional = true }
 
 # Base64 for protocol
 base64 = "0.22"
 
+# CLI for the sandd-controller binary. Same version/features as the daemon's, so
+# both sides of the project present one flag style. `env` is what lets every flag
+# also be read from an env var (Nebula configures the controller through a
+# Deployment env block, which cannot conveniently assemble an argv).
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# Daemon-token verification (EdDSA/Ed25519 JWTs minted by the Nebula manager).
+#
+# use_pem (a default feature) is required: the public key arrives as a PKIX PEM string
+# in SANDD_SIGNING_PUBLIC_KEY, so DecodingKey::from_ed_pem must exist.
+#
+# rust_crypto is not optional either — v11 requires exactly one crypto provider to be
+# selected at compile time and PANICS at the first verify if none is (it cannot infer
+# one). rust_crypto over aws_lc_rs because it is pure Rust: no cmake/C toolchain in the
+# build, which keeps cross-compiling to musl (how the daemon side ships) unencumbered.
+jsonwebtoken = { version = "11.0", features = ["rust_crypto"] }
+
 [features]
+# OFF by default so `cargo build`/`cargo test` work with no interpreter in sight —
+# that is the binary's build, and it is also what CI and `make test` run.
+#
+# maturin turns it on (pyproject.toml [tool.maturin] features) when building the
+# wheel, which is the only build that wants the extension module.
 default = []
+python = ["pyo3", "pythonize"]
+# The C ABI (src/ffi.rs), for a host that is not CPython — Nebula's Go manager links the
+# cdylib via cgo. Pulls in NO extra dependency: a C surface needs only std. So unlike
+# `python`, this feature cannot fail to link for want of an interpreter, and
+# `cargo build --features ffi` works anywhere the plain build does.
+ffi = []

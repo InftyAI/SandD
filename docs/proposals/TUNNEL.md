@@ -303,9 +303,18 @@ docker run \
 ### 1. Build Tunnel Image
 
 ```bash
-# From SandD repo
-docker build -f hack/docker/Dockerfile.server-tunnel -t inftyai/sandd-server-tunnel:latest .
+# From SandD repo. Builds linux/amd64 + linux/arm64 as one manifest, so the image
+# runs on cluster nodes of either arch (a plain `docker build` on an arm64 Mac
+# yields an arm64-only image that dies with `exec format error` on amd64 nodes).
+make docker-build-server-tunnel      # both arches, no push
+make docker-push-server-tunnel       # both arches, push a manifest
+
+# Iterating locally? Build just the host arch so the image is runnable:
+make docker-build-server-tunnel-local
 ```
+
+See [hack/docker/README.md](../../hack/docker/README.md) for the overridable
+variables (`SERVER_TUNNEL_IMG`, `SERVER_TUNNEL_TAG`, `PLATFORMS`).
 
 ### 2. Run Headscale
 

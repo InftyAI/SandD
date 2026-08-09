@@ -10,7 +10,7 @@ This directory contains Docker-related files for building and testing SandD.
 
 - **`Dockerfile.server-tunnel`** - Server with Tailscale (build from source)
   - Use: Development and testing
-  - Build: `docker build -f hack/docker/Dockerfile.server-tunnel -t inftyai/sandd-server-tunnel:latest .`
+  - Build: `make docker-build-server-tunnel` (amd64 + arm64; see "Multi-arch" below)
   - See: [docs/proposals/TUNNEL.md](../../docs/proposals/TUNNEL.md)
 
 - **`Dockerfile.server-tunnel-release`** - Server with Tailscale (uses PyPI release)
@@ -42,12 +42,49 @@ This directory contains Docker-related files for building and testing SandD.
 
 ## Building
 
-### Build tunnel-enabled image
+### Build tunnel-enabled image (multi-arch)
+
+The controller image must run on **both** `linux/amd64` and `linux/arm64`: it is
+typically built on an arm64 Mac but deployed to cluster nodes that are usually amd64
+(and sometimes arm64, e.g. Graviton). A plain `docker build` produces a **single-arch**
+image for the host, which fails on a node of the other arch with `exec format error`.
+
+Use the Makefile targets, which always build a multi-arch manifest:
 
 ```bash
-# From repo root
-docker build -f hack/docker/Dockerfile.server-tunnel -t inftyai/sandd-server-tunnel:latest .
+# From repo root. Builds both arches, no push — a pre-flight check.
+make docker-build-server-tunnel
+
+# Build both arches and push ONE manifest, so each node pulls its own arch.
+# Requires `docker login` with push rights on inftyai/.
+make docker-push-server-tunnel
+
+# Confirm the pushed manifest really lists both arches:
+docker buildx imagetools inspect inftyai/sandd-server-tunnel:latest
 ```
+
+Overridable variables: `SERVER_TUNNEL_IMG`, `SERVER_TUNNEL_TAG`, `PLATFORMS`,
+`BUILDX_BUILDER`. For example, to push a versioned tag to your own registry:
+
+```bash
+make docker-push-server-tunnel \
+  SERVER_TUNNEL_IMG=myrepo/sandd-server-tunnel SERVER_TUNNEL_TAG=v0.1.0
+```
+
+To iterate locally you need a **runnable** image, which a multi-platform build cannot
+produce (the local docker store holds one arch per tag, so `--load` is incompatible
+with two platforms). Build host-arch-only instead:
+
+```bash
+make docker-build-server-tunnel-local
+docker run --rm inftyai/sandd-server-tunnel:latest \
+  python -c "from sandd import Server, tunnel_config_from_env; print('ok')"
+```
+
+Each platform compiles its own native wheel (`maturin` produces e.g.
+`manylinux_2_34_aarch64` and `..._x86_64`), and buildx runs both concurrently, so a
+cold two-platform build is a few minutes rather than the hours emulated Rust builds
+can imply. Pass `PLATFORMS=linux/arm64` (or `linux/amd64`) to halve it anyway.
 
 ### Build test images
 

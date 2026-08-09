@@ -5,7 +5,7 @@ MATURIN := .venv/bin/maturin
 # Pinned so lint results don't shift when ruff changes its default rule set.
 RUFF_VERSION := ruff==0.15.15
 
-.PHONY: help build install dev test clean daemon-build daemon-release test-e2e test-e2e-tunnel docker-build docker-down
+.PHONY: help build install dev test clean daemon-build daemon-release controller-build controller-release test-e2e test-e2e-tunnel docker-build docker-down
 
 help:
 	@echo "SandD - Sandbox Daemon - Build Commands"
@@ -18,9 +18,21 @@ help:
 	@echo "  make test-e2e-tunnel - Run tunnel-mode (Tailscale mesh) e2e tests (slow)"
 	@echo "  make daemon-build    - Build daemon binary (debug)"
 	@echo "  make daemon-release  - Build daemon binary (release)"
+	@echo "  make controller-build   - Build controller binary (debug)"
+	@echo "  make controller-release - Build controller binary (release)"
 	@echo "  make docker-build    - Build Docker image for daemon"
 	@echo "  make docker-down     - Stop and remove Docker containers"
 	@echo "  make clean           - Clean build artifacts"
+	@echo ""
+	@echo "Controller image (native Rust binary — what Nebula runs):"
+	@echo "  make docker-build-controller        - Build both arches (no push)"
+	@echo "  make docker-build-controller-local  - Build host arch only, load locally"
+	@echo "  make docker-push-controller         - Build both arches and push a manifest"
+	@echo ""
+	@echo "Tunnel server (Python-hosted controller) image — multi-arch (amd64 + arm64):"
+	@echo "  make docker-build-server-tunnel        - Build both arches (no push)"
+	@echo "  make docker-build-server-tunnel-local  - Build host arch only, load locally"
+	@echo "  make docker-push-server-tunnel         - Build both arches and push a manifest"
 
 build: $(MATURIN)
 	$(MATURIN) build -m server/Cargo.toml
@@ -35,8 +47,11 @@ test: lint $(PYTEST) dev
 	@echo "Running Rust tests (daemon)..."
 	cargo test --package sandd
 	@echo ""
-	@echo "Running Rust tests (server protocol)..."
-	cargo test --package sandbox-server --lib
+	@echo "Running Rust tests (controller: lib + binary)..."
+	# NOT --lib: that skips src/main.rs, where the controller's config/flag rules and
+	# the "auth on but material missing must be FATAL" tests live. --no-default-features
+	# is implicit (python is off by default), which is also what the bin target needs.
+	cargo test --package sandbox-server --lib --bins
 	@echo ""
 	@echo "Running Python tests (excluding e2e)..."
 	$(PYTEST) python/tests/ -m "not e2e"
@@ -48,6 +63,17 @@ daemon-release:
 	cargo build --package sandd --release
 	@echo ""
 	@echo "SandD binary built at: ./target/release/sandd"
+
+# The CONTROLLER binary — what Nebula runs, one Deployment per workload. No
+# --features python: the pyo3 layer must stay out or the bin cannot link at all
+# (extension-module leaves the CPython symbols undefined). See server/Cargo.toml.
+controller-build:
+	cargo build --package sandbox-server --bin sandd-controller
+
+controller-release:
+	cargo build --package sandbox-server --bin sandd-controller --release
+	@echo ""
+	@echo "SandD controller binary built at: ./target/release/sandd-controller"
 
 clean:
 	cargo clean
@@ -87,6 +113,126 @@ docker-up:
 
 docker-down:
 	docker compose -f hack/docker/docker-compose.e2e.yml down
+
+# --- Controller image (native Rust binary) -------------------------------------
+#
+# This is the image Nebula pulls: DefaultSandDControllerImage in Nebula's
+# internal/controller/pod_placement_controller.go is inftyai/sandd-controller:latest.
+# Distroless + one static-ish binary, ~50MB against the ~4GB server-tunnel image
+# below, because it carries no interpreter, no rustup and no Tailscale client.
+#
+# Multi-arch for the same reason as every other image here (see the note below):
+# built on arm64 Macs, deployed to mostly-amd64 nodes.
+CONTROLLER_IMG ?= inftyai/sandd-controller
+CONTROLLER_TAG ?= latest
+
+.PHONY: docker-build-controller
+docker-build-controller: buildx-builder
+	docker buildx build \
+		--builder $(BUILDX_BUILDER) \
+		--platform $(PLATFORMS) \
+		-f hack/docker/Dockerfile.controller \
+		-t $(CONTROLLER_IMG):$(CONTROLLER_TAG) \
+		.
+
+# Host arch only, loaded into the local docker store so it can actually be run
+# (`docker run --rm $(CONTROLLER_IMG):$(CONTROLLER_TAG) --help`). A multi-platform
+# build cannot be --load'ed: the local store holds one arch per tag.
+.PHONY: docker-build-controller-local
+docker-build-controller-local: buildx-builder
+	docker buildx build \
+		--builder $(BUILDX_BUILDER) \
+		-f hack/docker/Dockerfile.controller \
+		-t $(CONTROLLER_IMG):$(CONTROLLER_TAG) \
+		--load \
+		.
+
+.PHONY: docker-push-controller
+docker-push-controller: buildx-builder
+	docker buildx build \
+		--builder $(BUILDX_BUILDER) \
+		--platform $(PLATFORMS) \
+		-f hack/docker/Dockerfile.controller \
+		-t $(CONTROLLER_IMG):$(CONTROLLER_TAG) \
+		--push \
+		.
+	@echo ""
+	@echo "Pushed $(CONTROLLER_IMG):$(CONTROLLER_TAG) for $(PLATFORMS)"
+	@echo "Verify the manifest lists both arches:"
+	@echo "  docker buildx imagetools inspect $(CONTROLLER_IMG):$(CONTROLLER_TAG)"
+
+# --- Tunnel server (controller) image ------------------------------------------
+#
+# The PYTHON-hosted controller, kept for the tunnel/mesh e2e stacks and for driving a
+# controller from Python (`from sandd import Server`). Nebula uses the native binary
+# above instead — no Python drives its controllers and it does not use the mesh.
+#
+# The controller image must run on BOTH architectures: it is developed on arm64
+# Macs but deployed to clusters whose nodes are usually amd64 (and increasingly
+# arm64, e.g. Graviton). A single-arch image built on the dev machine dies on the
+# node with `exec format error`, so these targets always build a multi-arch
+# MANIFEST rather than whatever the host happens to be.
+#
+# Dockerfile.server-tunnel itself needs no arch handling: rustup and Tailscale's
+# install.sh both detect the target at runtime, and maturin compiles for the
+# build platform — so the same Dockerfile yields a correct image per platform.
+SERVER_TUNNEL_IMG ?= inftyai/sandd-server-tunnel
+SERVER_TUNNEL_TAG ?= latest
+# Both platforms by default. Override to shorten a dev loop, e.g.
+# `make docker-build-server-tunnel PLATFORMS=linux/arm64`.
+PLATFORMS ?= linux/amd64,linux/arm64
+# A named builder is REQUIRED for multi-platform work: the default `docker`
+# driver can only build for the host platform. Created on demand, reused after.
+BUILDX_BUILDER ?= sandd-multiarch
+
+.PHONY: buildx-builder
+buildx-builder:
+	@docker buildx inspect $(BUILDX_BUILDER) >/dev/null 2>&1 || { \
+		echo "Creating buildx builder $(BUILDX_BUILDER)..."; \
+		docker buildx create --name $(BUILDX_BUILDER) --driver docker-container --bootstrap; \
+	}
+
+# Build both arches WITHOUT pushing, as a pre-flight check. Note the images stay
+# in the build cache only: a multi-platform build cannot be loaded into the local
+# docker image store (it holds one arch per tag), which is why there is no
+# --load here. Use docker-build-server-tunnel-local to get a runnable image.
+.PHONY: docker-build-server-tunnel
+docker-build-server-tunnel: buildx-builder
+	docker buildx build \
+		--builder $(BUILDX_BUILDER) \
+		--platform $(PLATFORMS) \
+		-f hack/docker/Dockerfile.server-tunnel \
+		-t $(SERVER_TUNNEL_IMG):$(SERVER_TUNNEL_TAG) \
+		.
+
+# Build for the HOST arch only and load it into the local docker store, so it can
+# actually be run/inspected (`docker run ... python -c 'import sandd'`).
+.PHONY: docker-build-server-tunnel-local
+docker-build-server-tunnel-local: buildx-builder
+	docker buildx build \
+		--builder $(BUILDX_BUILDER) \
+		-f hack/docker/Dockerfile.server-tunnel \
+		-t $(SERVER_TUNNEL_IMG):$(SERVER_TUNNEL_TAG) \
+		--load \
+		.
+
+# Build both arches and push as ONE multi-arch manifest, so a node pulling the tag
+# gets its own architecture automatically. --push (not `docker push`) is required:
+# the multi-arch result never lands in the local store, it goes straight to the
+# registry. Requires `docker login` with push rights on $(SERVER_TUNNEL_IMG).
+.PHONY: docker-push-server-tunnel
+docker-push-server-tunnel: buildx-builder
+	docker buildx build \
+		--builder $(BUILDX_BUILDER) \
+		--platform $(PLATFORMS) \
+		-f hack/docker/Dockerfile.server-tunnel \
+		-t $(SERVER_TUNNEL_IMG):$(SERVER_TUNNEL_TAG) \
+		--push \
+		.
+	@echo ""
+	@echo "Pushed $(SERVER_TUNNEL_IMG):$(SERVER_TUNNEL_TAG) for $(PLATFORMS)"
+	@echo "Verify the manifest lists both arches:"
+	@echo "  docker buildx imagetools inspect $(SERVER_TUNNEL_IMG):$(SERVER_TUNNEL_TAG)"
 
 .PHONY: lint
 lint: $(RUFF)

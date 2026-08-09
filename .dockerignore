@@ -15,5 +15,8 @@ __pycache__/
 .env
 docker-compose*.yml
 docs/
-examples/
+# NOT examples/: sandd/Cargo.toml declares [[example]] targets at ../examples/*.rs,
+# and cargo parses every workspace member's manifest even when building one package.
+# Excluding this directory makes the workspace fail to parse in any image that builds
+# from source (Dockerfile.controller, Dockerfile.server-tunnel).
 python/tests/
