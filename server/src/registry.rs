@@ -248,6 +248,7 @@ impl DaemonRegistry {
             total_daemons: self.count(),
             by_platform: std::collections::HashMap::new(),
             oldest_connection_secs: 0,
+            daemons: std::collections::HashMap::new(),
         };
 
         let now = SystemTime::now()
@@ -266,17 +267,61 @@ impl DaemonRegistry {
             if age > stats.oldest_connection_secs {
                 stats.oldest_connection_secs = age;
             }
+
+            stats.daemons.insert(
+                conn.id.clone(),
+                DaemonInfo {
+                    hostname: conn.metadata.hostname.clone(),
+                    platform: conn.metadata.platform.clone(),
+                    arch: conn.metadata.arch.clone(),
+                    version: conn.metadata.version.clone(),
+                    labels: conn.metadata.labels.clone(),
+                    is_busy: conn.is_busy(),
+                    connected_secs: age,
+                    seconds_since_heartbeat: conn.seconds_since_heartbeat(),
+                },
+            );
         }
 
         stats
     }
 }
 
+/// Per-daemon detail carried in [`RegistryStats::daemons`].
+///
+/// This exists so ONE `/stats` request answers "which daemons are live, and how
+/// stale is each" — the question you actually have when a provisioned instance
+/// never shows up. `total_daemons` alone tells you a daemon is missing but not
+/// WHICH, and `seconds_since_heartbeat` is what distinguishes "connected and
+/// healthy" from "connected but about to be reaped by cleanup_stale".
+///
+/// Purely derived from `DaemonConnection` at call time — no new state is kept,
+/// so this cannot drift from the registry.
+#[derive(Debug, Clone)]
+pub struct DaemonInfo {
+    pub hostname: String,
+    pub platform: String,
+    pub arch: String,
+    pub version: String,
+    pub labels: std::collections::HashMap<String, String>,
+    pub is_busy: bool,
+    /// Seconds since this daemon connected.
+    pub connected_secs: u64,
+    /// Seconds since its last heartbeat. Compare against the heartbeat timeout
+    /// (see `cleanup_stale`) to see how close it is to being dropped.
+    pub seconds_since_heartbeat: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct RegistryStats {
+    /// Size of `daemons`, kept as a plain count: it is exposed to Python as
+    /// `PyStats.total_daemons` and is the cheap answer to "how many".
     pub total_daemons: usize,
     pub by_platform: std::collections::HashMap<String, usize>,
     pub oldest_connection_secs: u64,
+    /// Keyed by daemon id, so a caller that knows the id can look it up directly
+    /// instead of scanning a list.
+    pub daemons: std::collections::HashMap<String, DaemonInfo>,
 }
 
 impl Default for DaemonRegistry {
@@ -543,6 +588,64 @@ mod tests {
         assert_eq!(stats.by_platform.len(), 2);
         assert_eq!(stats.by_platform.get("linux"), Some(&2));
         assert_eq!(stats.by_platform.get("darwin"), Some(&1));
+    }
+
+    #[test]
+    fn test_get_stats_daemons_detail() {
+        let registry = DaemonRegistry::new();
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let mut labels = HashMap::new();
+        labels.insert("pod".to_string(), "sandbox-1".to_string());
+        let metadata = create_test_metadata_with_labels("host1", "linux", labels);
+        registry.register(DaemonConnection::new("daemon-1".to_string(), metadata, tx));
+
+        let stats = registry.get_stats();
+
+        // total_daemons stays the size of the map, so a caller can trust either.
+        assert_eq!(stats.total_daemons, stats.daemons.len());
+
+        // Keyed by daemon id — the id is NOT repeated inside the value.
+        let info = stats.daemons.get("daemon-1").expect("daemon-1 in stats");
+        assert_eq!(info.hostname, "host1");
+        assert_eq!(info.platform, "linux");
+        assert_eq!(info.arch, "x86_64");
+        assert_eq!(info.version, "0.1.0");
+        assert_eq!(
+            info.labels.get("pod").map(String::as_str),
+            Some("sandbox-1")
+        );
+        assert!(!info.is_busy);
+        // Just registered, so it is fresh on both clocks.
+        assert!(info.seconds_since_heartbeat <= 1);
+        assert!(info.connected_secs <= 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_stats_daemons_reflects_reap() {
+        let registry = DaemonRegistry::new();
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let metadata = create_test_metadata("host1", "linux");
+        let arc_conn =
+            registry.register(DaemonConnection::new("daemon-1".to_string(), metadata, tx));
+
+        // A daemon that has gone quiet still appears, with a large staleness — this
+        // is the state that distinguishes "connected then wedged" from "never came up".
+        arc_conn
+            .last_heartbeat
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        let stats = registry.get_stats();
+        assert!(stats.daemons["daemon-1"].seconds_since_heartbeat > 1_000);
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        assert_eq!(registry.cleanup_stale(0), 1);
+
+        // Once reaped it is gone from the map, and the count follows.
+        let stats = registry.get_stats();
+        assert!(!stats.daemons.contains_key("daemon-1"));
+        assert_eq!(stats.total_daemons, 0);
+        assert_eq!(stats.daemons.len(), 0);
     }
 
     #[test]
