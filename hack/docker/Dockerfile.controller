@@ -1,0 +1,102 @@
+# The sandd-controller image — what Nebula runs, one Deployment per workload
+# (DefaultSandDControllerImage = inftyai/sandd-controller:latest).
+#
+# Build: docker build -f hack/docker/Dockerfile.controller -t inftyai/sandd-controller:latest .
+# Run:   docker run -p 8765:8765 inftyai/sandd-controller:latest --help
+#
+# WHY NOT Dockerfile.server-tunnel: that image is python:3.11-slim plus Rust plus
+# Tailscale, and launches the controller as `python -c "from sandd import Server"`.
+# Under Nebula none of that is used — no Python drives the controller (daemons dial
+# IN, consumers reach it over HTTP) and there is no mesh (the daemon dials the
+# ClusterIP Service directly, see the drop-mesh dial-out design). At one controller
+# per workload, the interpreter and mesh client would be pure per-workload overhead.
+#
+# TWO STAGES so the toolchain never ships: the builder carries rustup and the whole
+# registry cache, the result is one static binary on a distroless base (~50MB total).
+#
+# The release pipeline (.github/workflows/release.yaml) builds the same binary for the
+# same musl targets and attaches it to the GitHub release, so a tagged image and the
+# published binary are the same artifact built the same way.
+
+# Pinned, not `rust:1-slim`: the toolchain is part of what makes this image
+# reproducible. 1.90 rather than something older because dependencies in Cargo.lock
+# require edition2024 (stabilized in 1.85) — a 1.83 builder fails to parse them.
+FROM rust:1.90-slim-bookworm AS builder
+
+# musl, so the binary is fully STATIC and the runtime stage needs no libc at all. The
+# daemon ships the same way (see release.yaml), so both halves of SandD have the same
+# "runs on anything" property.
+#
+# TARGETARCH is supplied by buildx; the arch is resolved from it rather than
+# hardcoded, so one Dockerfile serves both legs of the multi-arch manifest.
+ARG TARGETARCH
+RUN case "$TARGETARCH" in \
+        amd64) echo x86_64-unknown-linux-musl  > /target.txt ;; \
+        arm64) echo aarch64-unknown-linux-musl > /target.txt ;; \
+        *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+    && rustup target add "$(cat /target.txt)"
+
+WORKDIR /build
+
+# The whole workspace, because cargo parses EVERY member's manifest even when
+# building one package — and `sandd/Cargo.toml` declares a [[bench]] plus two
+# [[example]]s whose paths point outside its own directory (`../examples/*.rs`), so a
+# manifests-only copy does not even parse.
+#
+# The alternative (stub files for each of those targets) was tried and rejected: it
+# makes this image depend on the exact set of targets the DAEMON declares, so adding
+# an [[example]] over there breaks the controller build for a reason nobody would
+# connect to it. Copying real sources is both smaller and honest. The cost is only
+# that editing any Rust source invalidates the build layer; `docs/`, `examples/`,
+# `python/tests/` and `target/` are already excluded by .dockerignore.
+#
+# Nothing here builds the daemon itself — `--bin sandd-controller` compiles only what
+# the controller links, so portable-pty/sysinfo/blake3/criterion are never touched.
+COPY . .
+
+# --locked so the image is reproducible: a build that silently updated a transitive
+# dependency would not match the Cargo.lock the tests ran against.
+#
+# No --features python: the pyo3 layer is optional and stays OUT (see
+# server/Cargo.toml). With extension-module compiled in, this binary could not link
+# at all — the CPython symbols are deliberately left for an interpreter to supply.
+#
+# The `cdylib` warning here is expected and harmless: that crate type exists for the
+# Python extension module, which no bin target links.
+#
+# The binary is copied to a fixed path so the runtime stage does not need to know the
+# target triple.
+RUN cargo build --release --locked --package sandbox-server --bin sandd-controller \
+        --target "$(cat /target.txt)" \
+    && cp "target/$(cat /target.txt)/release/sandd-controller" /sandd-controller \
+    # Fail LOUDLY here rather than shipping a dynamically-linked binary that then
+    # dies on distroless/static with a confusing "no such file or directory" (which
+    # is really the missing interpreter, not the missing binary).
+    && if ! file /sandd-controller 2>/dev/null | grep -q .; then \
+         apt-get update -qq && apt-get install -y -qq file; \
+       fi \
+    && file /sandd-controller \
+    && file /sandd-controller | grep -qE "static-pie linked|statically linked"
+
+# distroless/STATIC, not /cc: a musl-static binary needs no libc, so there is nothing
+# for a runtime image to provide beyond CA certs, /etc/passwd and tzdata. Also no
+# shell and no package manager — nothing to exec if the process is ever compromised.
+FROM gcr.io/distroless/static-debian12:nonroot
+
+LABEL maintainer="InftyAI <contact@inftyai.com>"
+LABEL description="Per-workload SandD controller: daemons dial in over WebSocket."
+LABEL org.opencontainers.image.source="https://github.com/InftyAI/SandD"
+
+COPY --from=builder /sandd-controller /usr/local/bin/sandd-controller
+
+# Documents the port; Nebula's Deployment names it explicitly
+# (nebulav1alpha1.SanddControllerPort) and does not rely on this.
+EXPOSE 8765
+
+USER nonroot:nonroot
+
+# ENTRYPOINT, not CMD, so `docker run <img> --enable-auth` appends flags rather than
+# replacing the command. Nebula passes configuration as env vars and overrides
+# neither, so its Deployment needs no command/args at all.
+ENTRYPOINT ["/usr/local/bin/sandd-controller"]

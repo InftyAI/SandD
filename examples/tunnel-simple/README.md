@@ -48,8 +48,11 @@ You can either:
 - **Option B:** Build images manually first (useful for testing builds)
 
 ```bash
-# Option B: Build manually from repo root
-docker build -f hack/docker/Dockerfile.server-tunnel -t inftyai/sandd-server-tunnel:latest .
+# Option B: Build manually from repo root. Host arch only, so the image is loaded
+# into the local docker store and runnable here — that is what this local example
+# needs. For an image to PUSH for a cluster, use `make docker-push-server-tunnel`,
+# which builds amd64 + arm64 as one manifest.
+make docker-build-server-tunnel-local
 docker build -f hack/docker/Dockerfile.debian -t inftyai/sandd-daemon:debian .
 ```
 

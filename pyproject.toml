@@ -31,7 +31,10 @@ dev = [
 module-name = "sandd._core"
 python-source = "python"
 manifest-path = "server/Cargo.toml"
-features = ["pyo3/extension-module"]
+# `python` compiles server/src/python.rs (the pyo3 layer) and pulls pyo3/pythonize
+# in — both are OPTIONAL so the sandd-controller binary can build without CPython.
+# Without this feature the wheel would contain no `_core` module at all.
+features = ["python", "pyo3/extension-module"]
 include = [
     "server/**/*",
     "python/**/*",

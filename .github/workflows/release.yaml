@@ -24,9 +24,13 @@ jobs:
           - runner: ubuntu-22.04
             target: x86_64-unknown-linux-musl
             asset: sandd-linux-amd64
+            package: sandd
+            bin: sandd
           - runner: ubuntu-22.04-arm
             target: aarch64-unknown-linux-musl
             asset: sandd-linux-arm64
+            package: sandd
+            bin: sandd
           # No Intel-mac (x86_64-apple-darwin) leg: GitHub is retiring the
           # macos-13 (Intel) runners, so that job queues indefinitely and — with
           # `release` gated on `needs: build` — blocks the whole release from
@@ -34,6 +38,19 @@ jobs:
           - runner: macos-14
             target: aarch64-apple-darwin
             asset: sandd-darwin-arm64
+            package: sandd
+            bin: sandd
+          # THE DAEMON ONLY. There is deliberately no sandd-controller asset and no
+          # controller image: the controller is not a deployed artifact any more. Its
+          # only consumer, Nebula, compiles it INTO its manager process through the C
+          # ABI (server/src/ffi.rs), because a daemon's connection is a live socket
+          # owned by whichever process accepted it — so reaching back into a workload
+          # from a separate controller process would mean relaying.
+          #
+          # `cargo build --bin sandd-controller` and `make docker-build-controller`
+          # still work for anyone who wants to run it standalone. They are just not
+          # release artifacts, and publishing them would imply a supported deployment
+          # shape that nothing uses.
     steps:
       - uses: actions/checkout@v4
 
@@ -47,11 +64,13 @@ jobs:
         if: endsWith(matrix.target, '-musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
-      - name: Build daemon
-        run: cargo build --package sandd --release --locked --target ${{ matrix.target }}
+      - name: Build ${{ matrix.bin }}
+        run: |
+          cargo build --package ${{ matrix.package }} --bin ${{ matrix.bin }} \
+            --release --locked --target ${{ matrix.target }}
 
       - name: Rename binary
-        run: mv target/${{ matrix.target }}/release/sandd ${{ matrix.asset }}
+        run: mv target/${{ matrix.target }}/release/${{ matrix.bin }} ${{ matrix.asset }}
 
       - name: Verify static linking
         if: endsWith(matrix.target, '-musl')
@@ -88,7 +107,9 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          sha256sum sandd-* > sandd-checksums.txt
+          # The checksums file is excluded from its own input, so a re-run of this
+          # workflow cannot hash the file it is about to overwrite.
+          sha256sum $(ls sandd-* | grep -v '^sandd-checksums.txt$') > sandd-checksums.txt
           cat sandd-checksums.txt
 
       - name: Create or update release
