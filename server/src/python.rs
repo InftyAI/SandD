@@ -1,15 +1,10 @@
 //! The Python bindings — `sandd.Server` and friends, built by maturin into the
 //! `sandd._core` extension module.
 //!
-//! Behind the `python` feature (off by default) so the CONTROLLER BINARY does not
-//! link CPython: `src/main.rs` needs only registry + server + auth, and a `cargo
-//! build` that pulls in pyo3/extension-module cannot link at all on macOS (the
-//! extension is meant to be dlopened by an interpreter that provides the symbols).
-//! Gating the layer is what lets one crate produce both artifacts.
-//!
-//! Everything below is unchanged from when it lived in lib.rs; only the tunnel
-//! helpers moved with it, because tunnel mode is a Python-side (`connect="tunnel"`)
-//! option and the binary is direct-dial only.
+//! Behind the `python` feature (off by default) so a plain `cargo build`/`cargo test`
+//! does not link CPython: pyo3/extension-module cannot link at all on macOS outside
+//! an interpreter (the extension is meant to be dlopened by one that provides the
+//! symbols).
 
 use anyhow::Context;
 use pyo3::exceptions::{PyRuntimeError, PyTimeoutError, PyValueError};

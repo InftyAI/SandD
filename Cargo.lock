@@ -2065,7 +2065,6 @@ dependencies = [
  "anyhow",
  "axum",
  "base64",
- "clap",
  "dashmap",
  "futures 0.3.32",
  "futures-util",
