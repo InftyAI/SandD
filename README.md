@@ -172,6 +172,20 @@ server = Server(connect="tunnel", tunnel_config=tunnel_config_from_env())
 
 See [Tunnel Mode Guide](./docs/proposals/TUNNEL.md) for setup instructions.
 
+## Security
+
+SandD does not authenticate daemons yet. The controller accepts any client that
+speaks the `sandd.v1` protocol, and a daemon can register under any id, so anyone who
+can reach the controller's port can join and receive commands meant for that id.
+
+- **Direct mode:** run the controller only on a trusted network.
+- **Tunnel mode:** only nodes admitted to your Headscale mesh can reach the
+  controller, and traffic is encrypted with WireGuard. The `authkey` is a Headscale
+  key for joining the mesh, not a SandD credential.
+
+Daemon authentication and authorization with Keycloak is planned (see
+[Architecture](./docs/ARCHITECTURE.md#future-authentication)).
+
 ## Documentation
 
 - [Quick Start Guide](./docs/QUICKSTART.md)
@@ -183,7 +197,7 @@ See [Tunnel Mode Guide](./docs/proposals/TUNNEL.md) for setup instructions.
 
 ## Roadmap
 
-- [ ] **Authentication & Authorization** - Keycloak-issued tokens for daemons (today any client that speaks `sandd.v1` is admitted; see [Architecture](./docs/ARCHITECTURE.md#future-authentication))
+- [ ] **Authentication & Authorization** - Keycloak-issued tokens for daemons (see [Security](#security))
 - [ ] **File Transfer** - Upload and download files between controller and workers
 - [ ] **Audit Logging** - Track all commands, sessions, and file transfers
 - [ ] **Metrics** - Prometheus-compatible metrics for monitoring
