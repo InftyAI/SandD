@@ -3,12 +3,12 @@
 ## 1. Build Everything
 
 ```bash
-# Install dependencies
-pip3 install maturin
-
-# Build and install
-./test_build.sh
+make dev              # Python package, installed into .venv/
+make daemon-release   # Daemon binary at ./target/release/sandd
 ```
+
+Activate the virtualenv (`source .venv/bin/activate`) before running the Python
+snippets below.
 
 ## 2. Terminal 1 - Start Agent
 
@@ -25,9 +25,9 @@ while True:
     count = server.daemon_count()
     if count > 0:
         print(f"\n{count} daemon(s) connected:")
-        for daemon_id in server.list_daemons():
-            result = server.exec(daemon_id, "hostname")
-            print(f"  {daemon_id}: {result.stdout.strip()}")
+        for daemon in server.list_daemons():
+            result = server.exec(daemon.id, "hostname")
+            print(f"  {daemon.id}: {result.stdout.strip()}")
     time.sleep(5)
 ```
 
@@ -115,26 +115,12 @@ session.resize(rows=50, cols=120)
 session.close()
 ```
 
-### File Transfer
-
-```python
-# Upload file
-with open("config.yaml", "rb") as f:
-    data = f.read()
-server.upload_file("worker-1", "/etc/app/config.yaml", data)
-
-# Download file
-data = server.download_file("worker-1", "/var/log/app.log")
-with open("app.log", "wb") as f:
-    f.write(data)
-```
-
 ### Managing Daemons
 
 ```python
-# List connected daemons
-daemons = server.list_daemons()
-print(f"Connected: {daemons}")
+# List connected daemons, optionally filtered by labels
+for daemon in server.list_daemons(labels={"env": "prod"}):
+    print(daemon.id, daemon.version, daemon.labels, daemon.is_busy)
 
 # Get statistics
 stats = server.get_stats()

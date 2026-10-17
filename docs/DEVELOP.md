@@ -6,98 +6,90 @@ This guide is for developers working on SandD itself.
 
 - **Rust**: Install from https://rustup.rs/
 - **Python 3.8+**: With pip
-- **Maturin**: `pip install maturin`
+- **Docker**: Only for the e2e tests and images
+
+The Makefile creates `.venv/` and installs maturin, pytest and ruff into it as needed.
 
 ## Project Structure
 
 ```
 SandD/
-├── server/           # Rust server with PyO3 bindings
+├── protocol/         # Shared message types (sandd-protocol crate)
+│   └── src/lib.rs
+│
+├── server/           # Controller: Rust WebSocket server + PyO3 bindings
 │   ├── src/
-│   │   ├── lib.rs       # Python API bindings
-│   │   ├── server.rs    # WebSocket server (axum)
+│   │   ├── lib.rs       # Crate root
+│   │   ├── server.rs    # WebSocket server (axum): /ws, /stats, /health
 │   │   ├── registry.rs  # Daemon connection registry
-│   │   └── protocol.rs  # Message protocol
+│   │   └── python.rs    # Python API bindings (behind the `python` feature)
 │   └── Cargo.toml
 │
-├── sandd/            # Rust daemon binary
+├── sandd/            # Daemon binary (runs on workers)
 │   ├── src/
-│   │   ├── main.rs      # Daemon entry point
+│   │   ├── main.rs      # Entry point, connection loop, tunnel setup
 │   │   ├── executor.rs  # Command execution
 │   │   ├── session.rs   # Interactive sessions (PTY)
-│   │   └── protocol.rs  # Message protocol
+│   │   └── snapshot/    # Workspace snapshots
+│   ├── benches/         # Criterion benchmarks
 │   └── Cargo.toml
 │
-├── python/sandd/     # Python package wrapper
-│   └── __init__.py
+├── python/
+│   ├── sandd/        # Python package (Server, models, tunnel keys; AsyncServer is a stub)
+│   └── tests/        # Unit, integration and e2e tests
 │
+├── hack/             # Dockerfiles, compose stacks, install script
 └── examples/         # Usage examples
 ```
 
 ## Building
 
-### Quick Build (Development)
-
 ```bash
-# Build everything
-./test_build.sh
+make dev              # Build and install the Python package (debug, editable)
+make daemon-build     # Build the daemon (debug): ./target/debug/sandd
 
-# Or step by step:
-make dev              # Build Python package (debug)
-make daemon-build     # Build daemon (debug)
-```
-
-### Release Build
-
-```bash
 make release          # Python package (optimized)
-make daemon-release   # Daemon binary (optimized)
+make daemon-release   # Daemon binary (optimized): ./target/release/sandd
 ```
 
-### Manual Build
+Run `make help` for the full list of targets.
 
-```bash
-# Python package
-maturin develop --release -m server/Cargo.toml
-
-# Daemon
-cargo build --package sandd --release
-```
+The `python` feature of `server/` is off by default, so plain `cargo build` and
+`cargo test` work without a Python interpreter. Maturin turns it on when building the
+wheel (see `[tool.maturin]` in `pyproject.toml`).
 
 ## Development Workflow
 
 ### 1. Make Changes
 
-Edit files in `server/src/`, `sandd/src/`, or `python/sandd/`
+Edit files in `protocol/src/`, `server/src/`, `sandd/src/`, or `python/sandd/`.
 
 ### 2. Rebuild
 
 ```bash
-# If you changed server/
+# If you changed protocol/, server/ or python/sandd/
 make dev
 
-# If you changed daemon/
+# If you changed protocol/ or sandd/
 make daemon-build
-
-# If you changed Python wrapper only
-# (no rebuild needed, it's just a wrapper)
 ```
 
-### 3. Test
+### 3. Try It
 
 ```bash
-# Terminal 1: Start test agent
-python3 examples/simple_test.py
+# Terminal 1: start a controller
+python3 -c "
+from sandd import Server
+server = Server()
+server.wait_for_daemon('dev-1', timeout=60)
+print(server.exec('dev-1', 'uname -a').stdout)
+"
 
-# Terminal 2: Start daemon
-./target/debug/sandd --server-url ws://127.0.0.1:8765/ws
+# Terminal 2: start a daemon
+./target/debug/sandd --server-url ws://127.0.0.1:8765/ws --daemon-id dev-1
 ```
 
-### 4. Run Examples
-
-```bash
-python3 examples/agent_example.py
-```
+See [examples/](../examples) for sessions, snapshots and tunnel mode.
 
 ## Architecture
 
@@ -130,39 +122,35 @@ file_transfers: Vec<Vec<u8>>                 // Chunked buffering
 
 ## Testing
 
-### Unit Tests
-
 ```bash
-cargo test --workspace
+make test             # Lint + Rust tests + Python tests (no Docker)
+make test-e2e         # Direct-mode e2e against daemons in Docker (slow)
+make test-e2e-tunnel  # Tunnel-mode e2e with a Headscale mesh in Docker (slow)
+make lint             # ruff check
+make format           # ruff fix + format
+make benchmark        # Daemon benchmarks (criterion)
 ```
 
-### Integration Tests
-
-```bash
-pytest tests/  # (when tests are added)
-```
-
-### Manual Testing
-
-Use `examples/agent_example.py` to test all features.
+Python tests are selected by marker: `e2e` for Docker-based tests, `tunnel` for the
+tunnel stack. `make test` runs `-m "not e2e"`.
 
 ## Common Tasks
 
-### Adding a New Command Type
+### Adding a New Message Type
 
-1. Add to `protocol.rs` (both server and daemon):
+1. Add the variant to `Message` in `protocol/src/lib.rs` (shared by server and daemon):
    ```rust
-   Message::MyNewCommand { field: String }
+   MyNewCommand { field: String }
    ```
 
-2. Handle in `server/src/server.rs`:
+2. Handle it in `server/src/server.rs`:
    ```rust
    Message::MyNewCommand { field } => {
        // Forward to daemon or handle
    }
    ```
 
-3. Handle in `sandd/src/main.rs`:
+3. Handle it in `sandd/src/main.rs`:
    ```rust
    Message::MyNewCommand { field } => {
        // Execute and respond
@@ -171,7 +159,7 @@ Use `examples/agent_example.py` to test all features.
 
 ### Adding Python API
 
-1. Add method to `Server` in `server/src/lib.rs`:
+1. Add a method to `Server` in `server/src/python.rs`:
    ```rust
    #[pymethods]
    impl Server {
@@ -181,7 +169,7 @@ Use `examples/agent_example.py` to test all features.
    }
    ```
 
-2. Add wrapper in `python/sandd/__init__.py`:
+2. Add a wrapper in `python/sandd/server.py`:
    ```python
    def my_method(self, arg: str) -> None:
        """User-friendly docstring"""
@@ -195,30 +183,21 @@ Use `examples/agent_example.py` to test all features.
 RUST_LOG=debug ./target/debug/sandd --server-url ws://127.0.0.1:8765/ws
 ```
 
-**Python side:**
-```python
-import logging
-logging.basicConfig(level=logging.DEBUG)
-```
+**Controller logs:** `Server(verbose=True)` (the default) logs at INFO; set
+`RUST_LOG=sandbox_server=debug` for more.
 
-**Check WebSocket traffic:**
-```bash
-# In server
-RUST_LOG=server=debug python3 examples/simple_test.py
-```
+## Known Issues & Limitations
 
-## Known Issues & Limitations (MVP)
-
-### Not Implemented
-
-1. **File Transfer**: Protocol defined, daemon just logs
-   - Reason: Deferred for MVP
-   - Fix: Implement actual file I/O in daemon
+1. **File transfer is not supported yet.** `Server.upload_file` and
+   `Server.download_file` exist, and the protocol messages are defined, but the
+   feature is unfinished: don't rely on either call.
+2. **No daemon authentication.** Any client that speaks `sandd.v1` can register as any
+   daemon id. Run the controller on a trusted network or in tunnel mode. See
+   [ARCHITECTURE.md](ARCHITECTURE.md#future-authentication).
 
 ### Warnings
 
 - PyO3 `non_local_definitions` warning: Safe to ignore (PyO3 macro limitation)
-- Unused imports/variables: Run `cargo fix` to clean up
 
 ## Performance
 
@@ -232,20 +211,21 @@ At 200 concurrent daemons:
 
 ### Before Submitting PR
 
-1. Run tests: `cargo test --workspace`
-2. Check formatting: `cargo fmt --all`
-3. Check lints: `cargo clippy --all`
-4. Test manually with examples
-5. Update docs if adding features
+1. Run `make test`
+2. Check formatting: `cargo fmt --all` and `make format`
+3. Check lints: `cargo clippy --workspace --all-targets`
+4. Update docs if adding features
 
 ### Commit Style
 
 ```
-Add feature: brief description
+feat: brief description
 
 More detailed explanation if needed.
 Include motivation and context.
 ```
+
+Use a `feat:`, `fix:` or `chore:` prefix, as in the existing history.
 
 ### Adding Dependencies
 
@@ -255,23 +235,23 @@ Include motivation and context.
 
 ## Release Process
 
-1. Update version in `pyproject.toml` and `Cargo.toml` files
-2. Update `CHANGELOG.md` (when added)
-3. Build release: `make release && make daemon-release`
-4. Test release build
-5. Tag: `git tag v0.x.0`
-6. Build wheel: `maturin build --release -m server/Cargo.toml`
-7. Publish: `maturin publish` (when ready)
+1. Update the version in `pyproject.toml`, `protocol/Cargo.toml`, `server/Cargo.toml`
+   and `sandd/Cargo.toml` (and the `sandd-protocol` dependency version in
+   `sandd/Cargo.toml`)
+2. Tag and push: `git tag v0.x.y && git push upstream v0.x.y`. The `Release` workflow
+   builds the daemon binaries and creates the GitHub release.
+3. Publish packages: `make publish` (wheels to PyPI, needs `INFTYAI_PYPI_TOKEN`; crates
+   to crates.io)
 
 ## Troubleshooting
 
 ### User Issues
 
 **Daemon won't connect:**
-- Check agent URL is reachable: `curl -v ws://agent-host:8765/ws`
+- Check the controller is up: `curl http://controller-host:8765/health`
 - Verify firewall allows outbound WebSocket connections
-- Check agent server is running: `ps aux | grep python`
 - Check daemon logs: `RUST_LOG=info ./target/release/sandd ...`
+- Check what the controller sees: `curl http://controller-host:8765/stats`
 
 **Commands timing out:**
 - Increase `timeout` parameter in `exec()` (in seconds)
@@ -323,5 +303,4 @@ For complete protocol specification, see [proposals/PROTOCOL.md](proposals/PROTO
 
 - Check [ARCHITECTURE.md](ARCHITECTURE.md) for design details
 - Check [proposals/PROTOCOL.md](proposals/PROTOCOL.md) for protocol specification
-- Check [STATUS.md](STATUS.md) for implementation status
 - Check [QUICKSTART.md](QUICKSTART.md) for usage examples

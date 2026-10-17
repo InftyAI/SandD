@@ -270,6 +270,8 @@ All messages are JSON with a `type` field indicating the message type:
 
 ### File Transfer
 
+> **Not supported yet.** These messages are defined, but file transfer is unfinished.
+
 #### FileUploadStart
 **Direction**: Agent → Daemon
 **Purpose**: Begin uploading a file to daemon
@@ -443,6 +445,6 @@ All messages are JSON with a `type` field indicating the message type:
 
 ## Implementation Details
 
-See `server/src/protocol.rs` for the complete Rust implementation using serde for JSON serialization.
+See `protocol/src/lib.rs` for the complete Rust implementation using serde for JSON serialization.
 
 Binary data (session I/O, file chunks) is base64-encoded for JSON compatibility.
