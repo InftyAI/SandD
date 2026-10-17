@@ -59,23 +59,63 @@ Rust-powered WebSocket server with Python API for remote command execution and i
        └───────┘ └───────┘ └───────┘
 ```
 
+## Quick Start
+
+Run a server and a daemon on one machine and execute a command. You need Rust
+(https://rustup.rs) and Python 3.8+.
+
+**1. Build both from source:**
+
+```bash
+git clone https://github.com/InftyAI/SandD
+cd SandD
+pip install .          # server: the `sandd` Python package
+make daemon-release    # daemon: ./target/release/sandd
+```
+
+**2. Terminal 1, start the server:**
+
+```python
+from sandd import Server
+
+server = Server()  # listens on 0.0.0.0:8765
+print("waiting for worker-1...")
+server.wait_for_daemon("worker-1", timeout=120)
+
+result = server.exec("worker-1", "uname -a")
+print(result.stdout)
+```
+
+**3. Terminal 2, start a daemon:**
+
+```bash
+./target/release/sandd --server-url ws://127.0.0.1:8765/ws --daemon-id worker-1
+```
+
+Terminal 1 prints the daemon's `uname -a`. On real machines, run the daemon on each
+worker with `ws://<server-ip>:8765/ws`; workers dial out, so only the server's
+port needs to be reachable.
+
 ## Installation
 
-### Python Package (Controller)
+The server is a Python package (`from sandd import Server`); the daemon is a
+separate binary, also named `sandd`, that runs on each worker.
 
-Install from PyPI:
+### Server (Python package)
+
+From PyPI:
 ```bash
 pip install sandd
 ```
 
-Or build from source:
+From source (needs Rust):
 ```bash
 git clone https://github.com/InftyAI/SandD
 cd SandD
-make install
+pip install .
 ```
 
-### Daemon Binary (Worker)
+### Daemon (worker binary)
 
 #### Quick Install
 
@@ -87,10 +127,10 @@ curl -fsSL https://raw.githubusercontent.com/InftyAI/SandD/main/hack/scripts/ins
 curl -fsSL https://raw.githubusercontent.com/InftyAI/SandD/main/hack/scripts/install.sh | sudo bash -s -- --tunnel
 ```
 
-This installs the latest release. To pin a specific version:
+This installs the latest release to `/usr/local/bin/sandd`. To pin a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/InftyAI/SandD/main/hack/scripts/install.sh | sudo bash -s -- --version v0.1.0
+curl -fsSL https://raw.githubusercontent.com/InftyAI/SandD/main/hack/scripts/install.sh | sudo bash -s -- --version v0.0.7
 ```
 
 #### Alternative Methods
@@ -104,8 +144,9 @@ cargo install sandd
 ```bash
 git clone https://github.com/InftyAI/SandD
 cd SandD
-make daemon-release
-# Binary at: ./target/release/sandd
+make daemon-release              # binary at ./target/release/sandd
+# or put it on your PATH (~/.cargo/bin/sandd):
+cargo install --path sandd
 ```
 
 **Build from the main branch:**
@@ -113,11 +154,9 @@ make daemon-release
 cargo install --git https://github.com/InftyAI/SandD sandd
 ```
 
-## Quick Start
+## Usage
 
 ### Direct Mode (Development)
-
-**Start controller:**
 
 ```python
 from sandd import Server
@@ -129,18 +168,8 @@ result = server.exec("worker-1", "hostname")
 print(result.stdout)
 ```
 
-**Start daemon:**
-
 ```bash
-# Direct mode
-sandd --server-url ws://controller-ip:8765/ws --daemon-id worker-1
-
-# Tunnel mode
-sandd --server-url ws://10.200.0.1:8765/ws \
-      --daemon-id worker-1 \
-      --tunnel \
-      --tunnel-authkey YOUR_KEY \
-      --tunnel-server http://headscale:8080
+sandd --server-url ws://server-ip:8765/ws --daemon-id worker-1
 ```
 
 ### Tunnel Mode (Production)
@@ -160,6 +189,14 @@ server = Server(connect="tunnel", tunnel_config=config)
 # ✓ No public IPs required
 ```
 
+```bash
+sandd --server-url ws://10.200.0.1:8765/ws \
+      --daemon-id worker-1 \
+      --tunnel \
+      --tunnel-authkey YOUR_KEY \
+      --tunnel-server http://headscale:8080
+```
+
 In a cluster, don't bake a key into your image — mint one per start from a key
 broker (`$SANDD_KEYBROKER_URL`) and take the headscale URL from
 `$SANDD_TUNNEL_SERVER`:
@@ -174,13 +211,13 @@ See [Tunnel Mode Guide](./docs/proposals/TUNNEL.md) for setup instructions.
 
 ## Security
 
-SandD does not authenticate daemons yet. The controller accepts any client that
+SandD does not authenticate daemons yet. The server accepts any client that
 speaks the `sandd.v1` protocol, and a daemon can register under any id, so anyone who
-can reach the controller's port can join and receive commands meant for that id.
+can reach the server's port can join and receive commands meant for that id.
 
-- **Direct mode:** run the controller only on a trusted network.
+- **Direct mode:** run the server only on a trusted network.
 - **Tunnel mode:** only nodes admitted to your Headscale mesh can reach the
-  controller, and traffic is encrypted with WireGuard. The `authkey` is a Headscale
+  server, and traffic is encrypted with WireGuard. The `authkey` is a Headscale
   key for joining the mesh, not a SandD credential.
 
 Daemon authentication and authorization with Keycloak is planned (see
@@ -198,7 +235,7 @@ Daemon authentication and authorization with Keycloak is planned (see
 ## Roadmap
 
 - [ ] **Authentication & Authorization** - Keycloak-issued tokens for daemons (see [Security](#security))
-- [ ] **File Transfer** - Upload and download files between controller and workers
+- [ ] **File Transfer** - Upload and download files between server and workers
 - [ ] **Audit Logging** - Track all commands, sessions, and file transfers
 - [ ] **Metrics** - Prometheus-compatible metrics for monitoring
 - [ ] **Resource Limits** - CPU/memory/timeout controls per daemon

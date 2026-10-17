@@ -7,7 +7,7 @@ try:
     from ._core import PyCommandResult, PyStats
 except ImportError as e:
     raise ImportError(
-        "Failed to import Rust extension. Please build the package with: make install"
+        "Failed to import Rust extension. Please build it with: make dev (source checkout) or pip install ."
     ) from e
 
 
