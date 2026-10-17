@@ -2,13 +2,12 @@
 #![allow(dead_code)]
 #![allow(non_local_definitions)]
 
-//! The SandD controller: the registry of connected daemons, the WebSocket server
-//! they dial into, and the token verification that admits them.
+//! The SandD controller: the registry of connected daemons and the WebSocket server
+//! they dial into.
 //!
 //! Driven from Python: `src/python.rs` holds the pyo3 bindings maturin builds into
 //! `sandd._core`, behind the `python` feature so `cargo test` needs no interpreter.
 
-pub mod auth;
 pub mod registry;
 pub mod server;
 
