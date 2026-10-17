@@ -1,6 +1,6 @@
 [package]
 name = "sandbox-server"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 license = "Apache-2.0"
 description = "A lightweight sandbox daemon for secure agent execution in isolated environments."
@@ -39,7 +39,7 @@ parking_lot = "0.12"
 # [features] below). With extension-module set, pyo3 deliberately leaves the CPython
 # symbols undefined for an interpreter to supply at dlopen time, so a plain `cargo
 # test` linking it would fail (loudly on macOS, subtly elsewhere).
-pyo3 = { version = "0.20", features = ["extension-module", "anyhow"], optional = true }
+pyo3 = { version = "0.20", features = ["extension-module", "anyhow", "abi3-py38"], optional = true }
 pythonize = { version = "0.20", optional = true }
 
 # Base64 for protocol

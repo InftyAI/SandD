@@ -210,12 +210,18 @@ build-wheels-linux:
 	@echo "Building for Linux aarch64..."
 	docker run --rm --platform linux/arm64 -v $$(pwd):/io ghcr.io/pyo3/maturin build --release -m /io/server/Cargo.toml
 
-# Build all wheels (local + Linux if Docker available)
-build-wheels: build-wheels-local build-wheels-linux
+# Build all wheels (local + Linux). Starts from an empty target/wheels so only this
+# version is uploaded: publish-pypi uploads everything in it, and a leftover wheel
+# from an earlier version bump once got published by accident.
+build-wheels:
+	rm -rf target/wheels
+	$(MAKE) build-wheels-local build-wheels-linux
 
-# Upload wheels to PyPI
+# Upload wheels to PyPI. Exported so `make publish-pypi INFTYAI_PYPI_TOKEN=...` also
+# reaches the recipe through the environment.
+export INFTYAI_PYPI_TOKEN
 publish-pypi: $(MATURIN) build-wheels
-	@if [ -z "$(INFTYAI_PYPI_TOKEN)" ]; then \
+	@if [ -z "$$INFTYAI_PYPI_TOKEN" ]; then \
 		echo "Error: INFTYAI_PYPI_TOKEN environment variable not set"; \
 		exit 1; \
 	fi
@@ -225,7 +231,9 @@ publish-pypi: $(MATURIN) build-wheels
 	fi
 	@echo "Uploading wheels to PyPI..."
 	@ls target/wheels/*.whl
-	$(MATURIN) upload target/wheels/*.whl --skip-existing --username __token__ --password $(INFTYAI_PYPI_TOKEN)
+	@# The token goes in via the environment, never argv: a make-echoed or `ps`-visible
+	@# command line would expose it.
+	@MATURIN_PYPI_TOKEN="$$INFTYAI_PYPI_TOKEN" $(MATURIN) upload --skip-existing target/wheels/*.whl
 
 # Publish one crate unless that exact version is already on crates.io. cargo has
 # no --skip-existing, and crates.io is append-only, so reruns of a partially

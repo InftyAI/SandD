@@ -1,6 +1,6 @@
 [package]
 name = "sandd"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 license = "Apache-2.0"
 description = "A lightweight sandbox daemon for secure agent execution in isolated environments."
@@ -30,7 +30,7 @@ path = "../examples/snapshot_real_project.rs"
 [dependencies]
 # `version` is required to publish: cargo strips `path` and resolves the
 # dependency from crates.io, so sandd-protocol must be published first.
-sandd-protocol = { path = "../protocol", version = "0.2.0" }
+sandd-protocol = { path = "../protocol", version = "0.2.1" }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

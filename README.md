@@ -130,7 +130,7 @@ curl -fsSL https://raw.githubusercontent.com/InftyAI/SandD/main/hack/scripts/ins
 This installs the latest release to `/usr/local/bin/sandd`. To pin a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/InftyAI/SandD/main/hack/scripts/install.sh | sudo bash -s -- --version v0.2.0
+curl -fsSL https://raw.githubusercontent.com/InftyAI/SandD/main/hack/scripts/install.sh | sudo bash -s -- --version v0.2.1
 ```
 
 #### Alternative Methods
