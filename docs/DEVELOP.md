@@ -286,14 +286,6 @@ Use a `feat:`, `fix:` or `chore:` prefix, as in the existing history.
 
 **Fix:** Use `-m server/Cargo.toml` flag
 
-### Linker errors about undefined `_Py*` symbols
-
-**Symptom:** `cargo build`/`cargo test` of `server/` fails to link with missing CPython
-symbols
-
-**Fix:** Don't enable the `python` feature outside maturin. It turns on
-`pyo3/extension-module`, which expects an interpreter to supply those symbols.
-
 ## Protocol
 
 WebSocket-based JSON protocol for agent-daemon communication.
