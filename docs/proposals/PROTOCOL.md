@@ -270,6 +270,8 @@ All messages are JSON with a `type` field indicating the message type:
 
 ### File Transfer
 
+> **Not supported yet.** These messages are defined, but file transfer is unfinished.
+
 #### FileUploadStart
 **Direction**: Agent → Daemon
 **Purpose**: Begin uploading a file to daemon

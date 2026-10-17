@@ -188,9 +188,9 @@ RUST_LOG=debug ./target/debug/sandd --server-url ws://127.0.0.1:8765/ws
 
 ## Known Issues & Limitations
 
-1. **File upload is not implemented.** `Server.upload_file` sends the data, but the
-   daemon only logs the chunks and writes nothing. The call still returns without an
-   error. `download_file` works.
+1. **File transfer is not supported yet.** `Server.upload_file` and
+   `Server.download_file` exist, and the protocol messages are defined, but the
+   feature is unfinished: don't rely on either call.
 2. **No daemon authentication.** Any client that speaks `sandd.v1` can register as any
    daemon id. Run the controller on a trusted network or in tunnel mode. See
    [ARCHITECTURE.md](ARCHITECTURE.md#future-authentication).

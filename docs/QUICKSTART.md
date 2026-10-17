@@ -115,18 +115,6 @@ session.resize(rows=50, cols=120)
 session.close()
 ```
 
-### File Transfer
-
-> **Note:** `upload_file` is not implemented on the daemon yet. It returns without an
-> error but writes nothing. Only download works today.
-
-```python
-# Download file
-data = server.download_file("worker-1", "/var/log/app.log")
-with open("app.log", "wb") as f:
-    f.write(data)
-```
-
 ### Managing Daemons
 
 ```python

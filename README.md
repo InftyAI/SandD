@@ -18,7 +18,6 @@ Rust-powered WebSocket server with Python API for remote command execution and i
 
 - **Command Execution** - Run shell commands on remote machines with timeout control
 - **Interactive Sessions** - Full PTY sessions with bash for manual work
-- **File Download** - Fetch files from workers (upload is not implemented yet)
 - **Snapshots** - Save, tag and restore workspace state on a worker
 - **Labels & Broadcast** - Filter workers by label and run a command on many at once
 - **Tunnel Mode (VPN)** - Secure mesh networking with WireGuard encryption via Tailscale
@@ -185,7 +184,7 @@ See [Tunnel Mode Guide](./docs/proposals/TUNNEL.md) for setup instructions.
 ## Roadmap
 
 - [ ] **Authentication & Authorization** - Keycloak-issued tokens for daemons (today any client that speaks `sandd.v1` is admitted; see [Architecture](./docs/ARCHITECTURE.md#future-authentication))
-- [ ] **File Upload** - Write uploaded files on the daemon
+- [ ] **File Transfer** - Upload and download files between controller and workers
 - [ ] **Audit Logging** - Track all commands, sessions, and file transfers
 - [ ] **Metrics** - Prometheus-compatible metrics for monitoring
 - [ ] **Resource Limits** - CPU/memory/timeout controls per daemon
