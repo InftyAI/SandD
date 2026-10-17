@@ -1675,7 +1675,7 @@ dependencies = [
 
 [[package]]
 name = "sandbox-server"
-version = "0.0.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1700,7 +1700,7 @@ dependencies = [
 
 [[package]]
 name = "sandd"
-version = "0.0.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -1729,7 +1729,7 @@ dependencies = [
 
 [[package]]
 name = "sandd-protocol"
-version = "0.0.1"
+version = "0.2.0"
 dependencies = [
  "base64",
  "serde",

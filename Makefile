@@ -5,13 +5,12 @@ MATURIN := .venv/bin/maturin
 # Pinned so lint results don't shift when ruff changes its default rule set.
 RUFF_VERSION := ruff==0.15.15
 
-.PHONY: help build install dev test clean daemon-build daemon-release test-e2e test-e2e-tunnel docker-build docker-down
+.PHONY: help build dev test clean daemon-build daemon-release test-e2e test-e2e-tunnel docker-build docker-down
 
 help:
 	@echo "SandD - Sandbox Daemon - Build Commands"
 	@echo ""
 	@echo "  make build           - Build Python package (debug mode)"
-	@echo "  make install         - Install Python package locally"
 	@echo "  make dev             - Install in development mode with hot reload"
 	@echo "  make test            - Run unit and integration tests (fast, no Docker)"
 	@echo "  make test-e2e        - Run direct-mode end-to-end tests with Docker (slow)"

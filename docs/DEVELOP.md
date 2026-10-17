@@ -17,7 +17,7 @@ SandD/
 ├── protocol/         # Shared message types (sandd-protocol crate)
 │   └── src/lib.rs
 │
-├── server/           # Controller: Rust WebSocket server + PyO3 bindings
+├── server/           # Server: Rust WebSocket server + PyO3 bindings
 │   ├── src/
 │   │   ├── lib.rs       # Crate root
 │   │   ├── server.rs    # WebSocket server (axum): /ws, /stats, /health
@@ -77,7 +77,7 @@ make daemon-build
 ### 3. Try It
 
 ```bash
-# Terminal 1: start a controller
+# Terminal 1: start a server
 python3 -c "
 from sandd import Server
 server = Server()
@@ -183,7 +183,7 @@ tunnel stack. `make test` runs `-m "not e2e"`.
 RUST_LOG=debug ./target/debug/sandd --server-url ws://127.0.0.1:8765/ws
 ```
 
-**Controller logs:** `Server(verbose=True)` (the default) logs at INFO; set
+**Server logs:** `Server(verbose=True)` (the default) logs at INFO; set
 `RUST_LOG=sandbox_server=debug` for more.
 
 ## Known Issues & Limitations
@@ -192,7 +192,7 @@ RUST_LOG=debug ./target/debug/sandd --server-url ws://127.0.0.1:8765/ws
    `Server.download_file` exist, and the protocol messages are defined, but the
    feature is unfinished: don't rely on either call.
 2. **No daemon authentication.** Any client that speaks `sandd.v1` can register as any
-   daemon id. Run the controller on a trusted network or in tunnel mode. See
+   daemon id. Run the server on a trusted network or in tunnel mode. See
    [ARCHITECTURE.md](ARCHITECTURE.md#future-authentication).
 
 ### Warnings
@@ -248,10 +248,10 @@ Use a `feat:`, `fix:` or `chore:` prefix, as in the existing history.
 ### User Issues
 
 **Daemon won't connect:**
-- Check the controller is up: `curl http://controller-host:8765/health`
+- Check the server is up: `curl http://server-host:8765/health`
 - Verify firewall allows outbound WebSocket connections
 - Check daemon logs: `RUST_LOG=info ./target/release/sandd ...`
-- Check what the controller sees: `curl http://controller-host:8765/stats`
+- Check what the server sees: `curl http://server-host:8765/stats`
 
 **Commands timing out:**
 - Increase `timeout` parameter in `exec()` (in seconds)

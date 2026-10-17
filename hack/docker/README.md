@@ -15,7 +15,7 @@ This directory contains Docker-related files for building and testing SandD.
 
 - **`Dockerfile.server-tunnel-release`** - Server with Tailscale (uses PyPI release)
   - Use: Production deployments
-  - Build: `docker build -f hack/docker/Dockerfile.server-tunnel-release --build-arg SANDD_VERSION=0.1.0 -t inftyai/sandd-server-tunnel:v0.1.0 .`
+  - Build: `docker build -f hack/docker/Dockerfile.server-tunnel-release --build-arg SANDD_VERSION=0.2.0 -t inftyai/sandd-server-tunnel:v0.2.0 .`
 
 #### Daemon (Worker) Images
 
@@ -25,7 +25,7 @@ This directory contains Docker-related files for building and testing SandD.
 
 - **`Dockerfile.daemon-tunnel-release`** - Daemon with Tailscale (uses GitHub release)
   - Use: Production deployments
-  - Build: `docker build -f hack/docker/Dockerfile.daemon-tunnel-release --build-arg SANDD_VERSION=v0.1.0 -t inftyai/sandd-tunnel:v0.1.0 .`
+  - Build: `docker build -f hack/docker/Dockerfile.daemon-tunnel-release --build-arg SANDD_VERSION=v0.2.0 -t inftyai/sandd-tunnel:v0.2.0 .`
 
 #### Test Images (Direct Mode)
 
@@ -68,7 +68,7 @@ Overridable variables: `SERVER_TUNNEL_IMG`, `SERVER_TUNNEL_TAG`, `PLATFORMS`,
 
 ```bash
 make docker-push-server-tunnel \
-  SERVER_TUNNEL_IMG=myrepo/sandd-server-tunnel SERVER_TUNNEL_TAG=v0.1.0
+  SERVER_TUNNEL_IMG=myrepo/sandd-server-tunnel SERVER_TUNNEL_TAG=v0.2.0
 ```
 
 To iterate locally you need a **runnable** image, which a multi-platform build cannot

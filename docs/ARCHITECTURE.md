@@ -56,7 +56,7 @@ Forward raw SSH traffic through WebSocket to daemon's sshd.
 
 ### Future: Authentication
 
-Today the controller admits any client that speaks `sandd.v1`, and a daemon can
+Today the server admits any client that speaks `sandd.v1`, and a daemon can
 register under any id. Run it on a trusted network, or in tunnel mode, where only mesh
 members can reach it.
 
@@ -64,7 +64,7 @@ The plan is to use Keycloak for authentication and authorization:
 
 - The daemon gets an access token from Keycloak and sends it as
   `Authorization: Bearer <token>` on the WebSocket upgrade.
-- The controller verifies the token against Keycloak's JWKS endpoint before upgrading,
+- The server verifies the token against Keycloak's JWKS endpoint before upgrading,
   and rejects a bad one with HTTP 401.
 - The token's claims decide which daemon id the connection registers as, and what it
   is allowed to do.
