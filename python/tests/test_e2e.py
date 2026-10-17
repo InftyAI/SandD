@@ -278,6 +278,23 @@ class TestE2EResilience:
         assert result.success
         assert "after" in result.stdout
 
+    def test_daemon_stays_connected_after_long_command(self, server):
+        """A command longer than the daemon's ack timeout (30s) must not make it reconnect
+
+        The daemon handles a command inline, so heartbeat acks go unread while it runs.
+        It used to read that as an unresponsive controller and reconnect right after
+        answering, so the next call failed with "daemon not found".
+        """
+        result = server.exec("daemon-debian-2", "sleep 35 && echo done", timeout=60)
+        assert result.success
+        assert "done" in result.stdout
+
+        # No wait: a reconnecting daemon is missing from the registry for its 5s backoff.
+        time.sleep(2)
+        result = server.exec("daemon-debian-2", "echo still-here", timeout=5)
+        assert result.success
+        assert "still-here" in result.stdout
+
 
 class TestE2EStats:
     """Test statistics with Docker daemons"""

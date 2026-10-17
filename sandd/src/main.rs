@@ -581,6 +581,15 @@ where
                 {
                     error!("Error handling message: {}", e);
                 }
+
+                // While the message was handled inline (an exec can run for minutes)
+                // this loop read nothing, so the controller's acks sat unread in the
+                // socket. That is OUR silence, not the controller's: without this, any
+                // command longer than ack_timeout made the next ack_check reconnect,
+                // dropping the daemon from the registry right after it answered. The
+                // buffered acks are read on the next iterations; a controller that
+                // really stopped acking is still caught one ack_timeout from now.
+                last_ack = Instant::now();
             }
         }
     };
